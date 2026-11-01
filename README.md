@@ -1,5 +1,7 @@
 # StockPilot — Multi-Tenant Retail Inventory & Billing System
 
+[![Deploy StockPilot to Lightsail](https://github.com/nnareshagarwal-cmd/stockpilot/actions/workflows/deploy.yml/badge.svg)](https://github.com/nnareshagarwal-cmd/stockpilot/actions/workflows/deploy.yml)
+
 StockPilot is a multi-tenant inventory, stock, and billing management system built for small and medium retailers (furniture, hardware, electrical, sanitaryware, and building materials).
 
 ---
