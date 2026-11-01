@@ -1,0 +1,63 @@
+name: Deploy StockPilot to Lightsail
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Deploy to Lightsail via SSH
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.VPS_IP }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          port: 22
+          script: |
+            set -e
+
+            cd /home/ubuntu/stockpilot
+
+            echo "Fetching latest StockPilot code..."
+            git fetch origin main
+            git reset --hard origin/main
+
+            echo "Checking Docker configuration..."
+            docker compose config --quiet
+
+            echo "Stopping existing services..."
+            docker compose down
+
+            echo "Building backend..."
+            docker compose build backend
+
+            echo "Applying database migrations..."
+            docker compose up -d db
+            docker compose run --rm backend alembic upgrade head
+
+            echo "Building frontend..."
+            docker compose build frontend
+
+            echo "Starting StockPilot..."
+            docker compose up -d
+
+            echo "Checking application health..."
+            for i in $(seq 1 12); do
+              if curl -fsS http://localhost/api/v1/health; then
+                echo "StockPilot deployment successful."
+                exit 0
+              fi
+              sleep 5
+            done
+
+            echo "Health check failed."
+            docker compose ps
+            exit 1
+
