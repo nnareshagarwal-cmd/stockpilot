@@ -1,3 +1,4 @@
+
 name: Deploy StockPilot to Lightsail
 
 on:
@@ -29,35 +30,36 @@ jobs:
             git fetch origin main
             git reset --hard origin/main
 
-            echo "Checking Docker configuration..."
-            docker compose config --quiet
+            echo "Checking production Docker configuration..."
+            docker compose -f docker-compose.yml -f docker-compose.prod.yml config --quiet
 
             echo "Stopping existing services..."
-            docker compose down
+            docker compose -f docker-compose.yml -f docker-compose.prod.yml down
 
             echo "Building backend..."
-            docker compose build backend
+            docker compose -f docker-compose.yml -f docker-compose.prod.yml build backend
+
+            echo "Starting database..."
+            docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d db
 
             echo "Applying database migrations..."
-            docker compose up -d db
-            docker compose run --rm backend alembic upgrade head
+            docker compose -f docker-compose.yml -f docker-compose.prod.yml run --rm backend alembic upgrade head
 
             echo "Building frontend..."
-            docker compose build frontend
+            docker compose -f docker-compose.yml -f docker-compose.prod.yml build frontend
 
             echo "Starting StockPilot..."
-            docker compose up -d
+            docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
 
-            echo "Checking application health..."
+            echo "Checking HTTPS application health..."
             for i in $(seq 1 12); do
-              if curl -fsS http://localhost/api/v1/health; then
-                echo "StockPilot deployment successful."
+              if curl -kfsS https://localhost/api/v1/health; then
+                echo "StockPilot HTTPS deployment successful."
                 exit 0
               fi
               sleep 5
             done
 
-            echo "Health check failed."
-            docker compose ps
+            echo "HTTPS health check failed."
+            docker compose -f docker-compose.yml -f docker-compose.prod.yml ps
             exit 1
-
