@@ -125,6 +125,7 @@ export const ProductFormPage: React.FC = () => {
 
   const [selectedCategoryId, setSelectedCategoryId] = useState<string | null>(null)
   const [selectedSubcategoryId, setSelectedSubcategoryId] = useState<string | null>(null)
+  const [selectedBrandId, setSelectedBrandId] = useState<string | null>(null)
 
   const [variants, setVariants] = useState<any[]>([
     {
@@ -226,35 +227,135 @@ export const ProductFormPage: React.FC = () => {
     }
   }, [defaultUnitId])
 
-  // Helper to compute auto-generated SKU based on Category + Subcategory + sequence
-  const computeSku = (catId?: string | null, subCatId?: string | null, index: number = 0) => {
+  // Common retail category abbreviations
+  const CATEGORY_ABBREVIATIONS: Record<string, string> = {
+    storage: 'STR',
+    sofa: 'SOF',
+    sofas: 'SOF',
+    chair: 'CHR',
+    chairs: 'CHR',
+    table: 'TBL',
+    tables: 'TBL',
+    bed: 'BED',
+    beds: 'BED',
+    desk: 'DSK',
+    desks: 'DSK',
+    wardrobe: 'WDR',
+    wardrobes: 'WDR',
+    cabinet: 'CAB',
+    cabinets: 'CAB',
+    shelf: 'SHF',
+    shelves: 'SHF',
+    lighting: 'LGT',
+    light: 'LGT',
+    decor: 'DEC',
+    dining: 'DIN',
+    living: 'LIV',
+    bedroom: 'BED',
+    office: 'OFF',
+    garden: 'GDN',
+    outdoor: 'OUT',
+    kitchen: 'KIT',
+    study: 'STY',
+    mattress: 'MAT',
+    cushion: 'CSH',
+    curtain: 'CUR',
+  }
+
+  // Extract 3-letter Brand Code (e.g. Crystal -> CRY, Royal Oak -> ROY)
+  const getBrandCode = (brandId?: string | null): string => {
+    if (!brandId) return 'GEN'
+    const brand = brands?.find((b: any) => b.id === brandId)
+    if (!brand || !brand.name) return 'GEN'
+
+    if (brand.code) return brand.code.replace(/[^a-zA-Z0-9]/g, '').slice(0, 3).toUpperCase()
+
+    const trimmed = brand.name.trim()
+    const words = trimmed.split(/\s+/)
+    if (words.length >= 2) {
+      const initials = words.map((w: string) => w[0]).join('').replace(/[^a-zA-Z0-9]/g, '').toUpperCase()
+      if (initials.length === 3) return initials
+      return words[0].replace(/[^a-zA-Z0-9]/g, '').slice(0, 3).toUpperCase()
+    }
+    return trimmed.replace(/[^a-zA-Z0-9]/g, '').slice(0, 3).toUpperCase() || 'GEN'
+  }
+
+  // Extract 3-letter Category Code (Compact: favors specific subcategory, e.g. Office Storage -> STR)
+  const getCategoryCode = (catId?: string | null, subCatId?: string | null): string => {
     const cat = categories?.find((c: any) => c.id === catId)
     const sub = categories?.find((c: any) => c.id === subCatId)
 
-    const catCode = (cat?.code || cat?.name || 'GEN')
-      .replace(/[^a-zA-Z0-9]/g, '')
-      .slice(0, 3)
-      .toUpperCase()
+    // 1. If Subcategory exists, use it as it represents the specific item type
+    if (sub) {
+      if (sub.code) {
+        return sub.code.replace(/[^a-zA-Z0-9]/g, '').slice(0, 3).toUpperCase()
+      }
 
-    const subCode = sub
-      ? (sub.code || sub.name || '')
-          .replace(/[^a-zA-Z0-9]/g, '')
-          .slice(0, 3)
-          .toUpperCase()
-      : 'ALL'
+      const subNameLower = (sub.name || '').toLowerCase()
+      for (const [keyword, abbr] of Object.entries(CATEGORY_ABBREVIATIONS)) {
+        if (subNameLower.includes(keyword)) {
+          return abbr
+        }
+      }
 
+      // If subcategory repeats main category word (e.g. "Office & Study" and "Office Storage")
+      let distinctSubName = sub.name || ''
+      if (cat?.name) {
+        const parentWords = cat.name.toLowerCase().split(/[\s&/,-]+/).filter((w: string) => w.length > 2)
+        for (const pw of parentWords) {
+          distinctSubName = distinctSubName.replace(new RegExp(`\\b${pw}\\b`, 'gi'), '').trim()
+        }
+      }
+
+      const cleanDistinct = distinctSubName.replace(/[^a-zA-Z0-9]/g, '')
+      if (cleanDistinct.length >= 3) {
+        return cleanDistinct.slice(0, 3).toUpperCase()
+      }
+      return (sub.name || 'GEN').replace(/[^a-zA-Z0-9]/g, '').slice(0, 3).toUpperCase()
+    }
+
+    // 2. If only Main Category is selected
+    if (cat) {
+      if (cat.code) {
+        return cat.code.replace(/[^a-zA-Z0-9]/g, '').slice(0, 3).toUpperCase()
+      }
+      const catNameLower = (cat.name || '').toLowerCase()
+      for (const [keyword, abbr] of Object.entries(CATEGORY_ABBREVIATIONS)) {
+        if (catNameLower.includes(keyword)) {
+          return abbr
+        }
+      }
+      return (cat.name || 'GEN').replace(/[^a-zA-Z0-9]/g, '').slice(0, 3).toUpperCase()
+    }
+
+    return 'GEN'
+  }
+
+  // Helper to compute compact auto-generated SKU: [BRAND]-[CATEGORY]-[SEQUENCE] (e.g. CRY-STR-001)
+  const computeSku = (
+    catId?: string | null,
+    subCatId?: string | null,
+    brandId?: string | null,
+    index: number = 0
+  ) => {
+    const brandCode = getBrandCode(brandId)
+    const categoryCode = getCategoryCode(catId, subCatId)
     const seq = String(index + 1).padStart(3, '0')
-    return `${catCode}-${subCode}-${seq}`
+    return `${brandCode}-${categoryCode}-${seq}`
   }
 
   // Auto-generate SKUs for variants
-  const handleAutoGenerateSku = (catId?: string | null, subCatId?: string | null) => {
-    if (!catId) return
+  const handleAutoGenerateSku = (
+    catId?: string | null,
+    subCatId?: string | null,
+    brandId?: string | null
+  ) => {
+    if (!catId && !brandId) return
     setVariants((prev) =>
       prev.map((v, idx) => {
-        // Only overwrite if empty or matches auto-generated dash pattern
-        if (!v.sku || !v.sku.trim() || v.sku.includes('-')) {
-          return { ...v, sku: computeSku(catId, subCatId, idx) }
+        // Only overwrite if empty or matches standard auto-generated dash pattern
+        if (!v.sku || !v.sku.trim() || /^[A-Z0-9]{2,4}-[A-Z0-9]{2,4}(-\d{3})?$/i.test(v.sku.trim())) {
+          return { ...v, sku: computeSku(catId, subCatId, brandId, idx) }
         }
         return v
       })
@@ -325,6 +426,7 @@ export const ProductFormPage: React.FC = () => {
       })
       setSelectedCategoryId(existingProduct.category_id)
       setSelectedSubcategoryId(existingProduct.subcategory_id)
+      setSelectedBrandId(existingProduct.brand_id)
 
       if (existingProduct.variants && existingProduct.variants.length > 0) {
         setVariants(
@@ -418,8 +520,8 @@ export const ProductFormPage: React.FC = () => {
 
   const handleAddVariant = () => {
     const nextIndex = variants.length
-    const autoSku = selectedCategoryId
-      ? computeSku(selectedCategoryId, selectedSubcategoryId, nextIndex)
+    const autoSku = selectedCategoryId || selectedBrandId
+      ? computeSku(selectedCategoryId, selectedSubcategoryId, selectedBrandId, nextIndex)
       : ''
 
     setVariants([
@@ -521,12 +623,12 @@ export const ProductFormPage: React.FC = () => {
       title: (
         <Space direction="horizontal" size={4}>
           <span>SKU *</span>
-          <Tooltip title="Auto-generate SKU based on Category & Subcategory">
+          <Tooltip title="Auto-generate SKU based on Brand & Category">
             <Button
               type="text"
               size="small"
               icon={<ThunderboltOutlined style={{ color: '#1677ff' }} />}
-              onClick={() => handleAutoGenerateSku(selectedCategoryId, selectedSubcategoryId)}
+              onClick={() => handleAutoGenerateSku(selectedCategoryId, selectedSubcategoryId, selectedBrandId)}
             />
           </Tooltip>
         </Space>
@@ -537,7 +639,7 @@ export const ProductFormPage: React.FC = () => {
       render: (_: any, record: any, index: number) => (
         <Space.Compact style={{ width: '100%' }}>
           <Input
-            placeholder="e.g. BED-KNG-001"
+            placeholder="e.g. CRY-STR-001"
             value={record.sku}
             onChange={(e) => handleVariantChange(record.key, 'sku', e.target.value)}
           />
@@ -545,7 +647,7 @@ export const ProductFormPage: React.FC = () => {
             <Button
               icon={<ThunderboltOutlined />}
               onClick={() => {
-                const auto = computeSku(selectedCategoryId, selectedSubcategoryId, index)
+                const auto = computeSku(selectedCategoryId, selectedSubcategoryId, selectedBrandId, index)
                 handleVariantChange(record.key, 'sku', auto)
               }}
             />
@@ -696,7 +798,7 @@ export const ProductFormPage: React.FC = () => {
                     setSelectedCategoryId(val)
                     setSelectedSubcategoryId(null)
                     form.setFieldValue('subcategory_id', undefined)
-                    handleAutoGenerateSku(val, null)
+                    handleAutoGenerateSku(val, null, selectedBrandId)
                   }}
                   options={mainCategories.map((c: any) => ({ label: c.name, value: c.id }))}
                 />
@@ -714,7 +816,7 @@ export const ProductFormPage: React.FC = () => {
                   allowClear
                   onChange={(val) => {
                     setSelectedSubcategoryId(val)
-                    handleAutoGenerateSku(selectedCategoryId, val)
+                    handleAutoGenerateSku(selectedCategoryId, val, selectedBrandId)
                   }}
                   options={subCategories.map((c: any) => ({ label: c.name, value: c.id }))}
                 />
@@ -733,6 +835,10 @@ export const ProductFormPage: React.FC = () => {
                     (option?.label ?? '').toString().toLowerCase().includes(input.toLowerCase())
                   }
                   allowClear
+                  onChange={(val) => {
+                    setSelectedBrandId(val)
+                    handleAutoGenerateSku(selectedCategoryId, selectedSubcategoryId, val)
+                  }}
                   options={brands?.map((b: any) => ({ label: b.name, value: b.id })) || []}
                 />
               </Form.Item>
