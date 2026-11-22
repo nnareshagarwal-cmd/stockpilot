@@ -190,7 +190,7 @@ export const LandingPage: React.FC = () => {
           </div>
           {Boolean(item.mrp) && Number(item.mrp) > Number(item.selling_price) ? (
             <div style={{ fontSize: '11px', color: '#94a3b8', textDecoration: 'line-through' }}>
-              ₹{Number(item.mrp).toLocaleString('en-IN')}
+              ₹{Number(item.mrp).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
             </div>
           ) : null}
           {Number(item.total_stock) > 0 ? (
@@ -396,7 +396,7 @@ export const LandingPage: React.FC = () => {
                         </Text>
                         {Boolean(item.mrp) && Number(item.mrp) > Number(item.selling_price) ? (
                           <Text delete type="secondary" style={{ fontSize: '12px' }}>
-                            ₹{Number(item.mrp).toLocaleString('en-IN')}
+                            ₹{Number(item.mrp).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                           </Text>
                         ) : null}
                       </div>
@@ -438,7 +438,7 @@ export const LandingPage: React.FC = () => {
                     {item.name}
                   </Text>
                   <Text type="secondary" style={{ fontSize: '12px' }}>
-                    ₹{Number(item.selling_price || 0).toLocaleString('en-IN')}
+                    ₹{Number(item.selling_price || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                   </Text>
                 </Card>
               </Col>

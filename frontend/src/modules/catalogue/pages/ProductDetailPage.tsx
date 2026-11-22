@@ -189,7 +189,10 @@ export const ProductDetailPage: React.FC = () => {
       title: 'MRP',
       dataIndex: 'mrp',
       key: 'mrp',
-      render: (mrp: number) => (mrp ? `₹${Number(mrp).toLocaleString('en-IN')}` : '—'),
+      render: (mrp: number) =>
+        mrp
+          ? `₹${Number(mrp).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+          : '—',
     },
     {
       title: 'Status',
@@ -363,7 +366,7 @@ export const ProductDetailPage: React.FC = () => {
               </Descriptions.Item>
               <Descriptions.Item label="MRP">
                 {product.variants[0]?.mrp
-                  ? `₹${Number(product.variants[0].mrp).toLocaleString('en-IN')}`
+                  ? `₹${Number(product.variants[0].mrp).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
                   : '—'}
               </Descriptions.Item>
               <Descriptions.Item label="GST Rate">

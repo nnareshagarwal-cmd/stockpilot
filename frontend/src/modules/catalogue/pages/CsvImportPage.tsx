@@ -23,6 +23,7 @@ import {
 import { useNavigate } from 'react-router-dom'
 import apiClient from '../../../api/client'
 import { CsvPreviewResponse } from '../../../api/types'
+import { formatIndianCurrency } from '../../../utils/currency'
 
 const { Title, Text, Paragraph } = Typography
 const { Dragger } = Upload
@@ -129,7 +130,8 @@ export const CsvImportPage: React.FC = () => {
     {
       title: 'Selling Price',
       key: 'selling_price',
-      render: (_: any, r: any) => (r.data.selling_price ? `₹${r.data.selling_price}` : '—'),
+      render: (_: any, r: any) =>
+        r.data.selling_price ? formatIndianCurrency(r.data.selling_price) : '—',
     },
     {
       title: 'Validation Errors',

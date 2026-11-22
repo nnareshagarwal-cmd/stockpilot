@@ -30,6 +30,7 @@ import { useNavigate, useParams, useLocation } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import apiClient from '../../../api/client'
 import { ApiResponse, AttributeDefinition } from '../../../api/types'
+import { formatIndianNumber, parseIndianNumber } from '../../../utils/currency'
 
 const { Title, Text, Paragraph } = Typography
 const { TextArea } = Input
@@ -688,7 +689,7 @@ export const ProductFormPage: React.FC = () => {
       title: 'Purchase Price (₹)',
       dataIndex: 'purchase_price',
       key: 'purchase_price',
-      width: 145,
+      width: 155,
       render: (_: any, record: any) => (
         <InputNumber
           min={0}
@@ -696,6 +697,8 @@ export const ProductFormPage: React.FC = () => {
           style={{ width: '100%' }}
           placeholder="Purchase Price"
           value={record.purchase_price}
+          formatter={(value) => formatIndianNumber(value)}
+          parser={(value) => parseIndianNumber(value) as any}
           onChange={(val) => handleVariantChange(record.key, 'purchase_price', val || 0)}
         />
       ),
@@ -704,7 +707,7 @@ export const ProductFormPage: React.FC = () => {
       title: 'MRP (₹)',
       dataIndex: 'mrp',
       key: 'mrp',
-      width: 140,
+      width: 150,
       render: (_: any, record: any) => (
         <InputNumber
           min={0}
@@ -712,6 +715,8 @@ export const ProductFormPage: React.FC = () => {
           style={{ width: '100%' }}
           placeholder="MRP"
           value={record.mrp}
+          formatter={(value) => formatIndianNumber(value)}
+          parser={(value) => parseIndianNumber(value) as any}
           onChange={(val) => handleVariantChange(record.key, 'mrp', val)}
         />
       ),
@@ -720,7 +725,7 @@ export const ProductFormPage: React.FC = () => {
       title: 'Discount Price (₹) *',
       dataIndex: 'selling_price',
       key: 'selling_price',
-      width: 155,
+      width: 165,
       render: (_: any, record: any) => (
         <InputNumber
           min={0}
@@ -728,6 +733,8 @@ export const ProductFormPage: React.FC = () => {
           style={{ width: '100%' }}
           placeholder="Discount Price"
           value={record.selling_price}
+          formatter={(value) => formatIndianNumber(value)}
+          parser={(value) => parseIndianNumber(value) as any}
           onChange={(val) => handleVariantChange(record.key, 'selling_price', val || 0)}
         />
       ),

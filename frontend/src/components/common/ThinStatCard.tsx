@@ -67,7 +67,7 @@ export const ThinStatCard: React.FC<ThinStatCardProps> = ({
           fontFamily: 'Inter, system-ui, -apple-system, sans-serif',
         }}
       >
-        {typeof value === 'number' ? value.toLocaleString() : value}
+        {typeof value === 'number' ? value.toLocaleString('en-IN') : value}
       </div>
       <div
         style={{
