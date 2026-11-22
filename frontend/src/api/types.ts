@@ -216,11 +216,14 @@ export interface ProductSearchItem {
   model?: string
   primary_image_url?: string
   default_sku?: string
+  cost_price?: number
+  purchase_price?: number
   selling_price?: number
   mrp?: number
   variant_count: number
   is_active: boolean
   locations?: string[]
+  total_stock?: number
 }
 
 export interface CsvRowPreview {
@@ -253,5 +256,72 @@ export interface ListOfValuesItem {
   is_system: boolean
   description?: string
   option_id?: string
+}
+
+export interface CompanyStockItem {
+  id: string
+  product_id: string
+  brand_name: string
+  supplier_item_code: string
+  item_name: string
+  description?: string
+  category_name?: string
+  subcategory_name?: string
+  category_id?: string
+  subcategory_id?: string
+  size?: string
+  color?: string
+  sku?: string
+  company_stock: number
+  store_stock: number
+  selling_price?: number
+  mrp?: number
+  cost_price?: number
+  report_date?: string
+  updated_at?: string
+}
+
+export interface CompanyStockSummary {
+  total_products: number
+  total_company_stock: number
+  total_store_stock: number
+  out_of_stock_in_store_count: number
+  in_company_stock_count: number
+  last_filename?: string
+  last_report_date?: string
+  last_uploaded_at?: string
+}
+
+export interface CompanyStockUploadResult {
+  batch_id: string
+  filename: string
+  report_date?: string
+  total_rows_processed: number
+  total_company_stock: number
+  new_products_created: number
+  existing_products_updated: number
+  brand_name: string
+}
+
+export interface WhatsAppOrderPreviewRequest {
+  items: {
+    product_id: string
+    sku?: string
+    supplier_item_code: string
+    item_name: string
+    color?: string
+    size?: string
+    quantity: number
+  }[]
+  supplier_name?: string
+  delivery_location?: string
+  special_notes?: string
+}
+
+export interface WhatsAppOrderPreviewResponse {
+  formatted_message: string
+  total_items: number
+  total_quantity: number
+  encoded_url: string
 }
 

@@ -1,6 +1,6 @@
 import uuid
 from typing import Optional
-from fastapi import APIRouter, Depends, Query, status
+from fastapi import APIRouter, Depends, Query, status, UploadFile, File, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
@@ -65,6 +65,29 @@ async def create_category(
         },
         "message": "Category created successfully",
     }
+
+
+@router.get("/categories/export")
+async def export_categories(
+    tenant_id: uuid.UUID = Depends(get_tenant_id),
+    db: AsyncSession = Depends(get_db),
+):
+    csv_text = await service.export_categories_csv(db, tenant_id)
+    return Response(
+        content=csv_text,
+        media_type="text/csv",
+        headers={"Content-Disposition": "attachment; filename=categories.csv"},
+    )
+
+
+@router.post("/categories/import")
+async def import_categories(
+    file: UploadFile = File(...),
+    user: User = Depends(require_role("admin")),
+    db: AsyncSession = Depends(get_db),
+):
+    result = await service.import_categories_csv(db, user.current_tenant_id, user.id, file)
+    return {"data": result, "message": f"Categories import finished: {result['imported']} imported, {result['updated']} updated"}
 
 
 @router.get("/categories/{category_id}")
@@ -138,6 +161,29 @@ async def create_brand(
 ):
     brand = await service.create_brand(db, user.current_tenant_id, user.id, data)
     return {"data": BrandResponse.model_validate(brand, from_attributes=True), "message": "Brand created successfully"}
+
+
+@router.get("/brands/export")
+async def export_brands(
+    tenant_id: uuid.UUID = Depends(get_tenant_id),
+    db: AsyncSession = Depends(get_db),
+):
+    csv_text = await service.export_brands_csv(db, tenant_id)
+    return Response(
+        content=csv_text,
+        media_type="text/csv",
+        headers={"Content-Disposition": "attachment; filename=brands.csv"},
+    )
+
+
+@router.post("/brands/import")
+async def import_brands(
+    file: UploadFile = File(...),
+    user: User = Depends(require_role("admin")),
+    db: AsyncSession = Depends(get_db),
+):
+    result = await service.import_brands_csv(db, user.current_tenant_id, user.id, file)
+    return {"data": result, "message": f"Brands import finished: {result['imported']} imported, {result['updated']} updated"}
 
 
 @router.get("/brands/{brand_id}")

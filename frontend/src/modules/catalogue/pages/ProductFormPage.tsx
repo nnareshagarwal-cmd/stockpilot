@@ -26,7 +26,7 @@ import {
   SaveOutlined,
   ThunderboltOutlined,
 } from '@ant-design/icons'
-import { useNavigate, useParams } from 'react-router-dom'
+import { useNavigate, useParams, useLocation } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import apiClient from '../../../api/client'
 import { ApiResponse, AttributeDefinition } from '../../../api/types'
@@ -108,8 +108,20 @@ export const ProductFormPage: React.FC = () => {
   const { id } = useParams<{ id: string }>()
   const isEdit = Boolean(id)
   const navigate = useNavigate()
+  const location = useLocation()
   const queryClient = useQueryClient()
   const [form] = Form.useForm()
+
+  const handleBack = () => {
+    const returnSearch = (location.state as any)?.returnSearch
+    if (returnSearch !== undefined) {
+      navigate(`/products${returnSearch ? `?${returnSearch}` : ''}`)
+    } else if (window.history.length > 1) {
+      navigate(-1)
+    } else {
+      navigate('/products')
+    }
+  }
 
   const [selectedCategoryId, setSelectedCategoryId] = useState<string | null>(null)
   const [selectedSubcategoryId, setSelectedSubcategoryId] = useState<string | null>(null)
@@ -377,7 +389,7 @@ export const ProductFormPage: React.FC = () => {
       }
 
       message.success(isEdit ? 'Product updated successfully' : 'Product created successfully')
-      navigate(`/products/${product.id}`)
+      navigate(`/products/${product.id}`, { state: location.state })
     },
     onError: (err: any) => {
       const msg = err.response?.data?.error?.message || 'Failed to save product'
@@ -636,7 +648,7 @@ export const ProductFormPage: React.FC = () => {
   return (
     <div style={{ maxWidth: '1100px', margin: '0 auto', paddingBottom: '60px' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: '16px', marginBottom: '24px' }}>
-        <Button icon={<ArrowLeftOutlined />} onClick={() => navigate('/products')} />
+        <Button icon={<ArrowLeftOutlined />} onClick={handleBack} />
         <div>
           <Title level={3} style={{ margin: 0, fontWeight: 700 }}>
             {isEdit ? 'Edit Product' : 'Add New Product'}
@@ -853,7 +865,7 @@ export const ProductFormPage: React.FC = () => {
         {/* Submit Actions */}
         <div style={{ textAlign: 'right' }}>
           <Space size={16}>
-            <Button size="large" onClick={() => navigate('/products')}>
+            <Button size="large" onClick={handleBack}>
               Cancel
             </Button>
             <Button

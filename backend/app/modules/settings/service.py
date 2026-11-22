@@ -1,5 +1,8 @@
 import uuid
+import io
+import csv
 from typing import List, Optional, Dict, Any
+from fastapi import UploadFile
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, and_, func, case
 from sqlalchemy.orm import selectinload
@@ -190,6 +193,163 @@ async def archive_category(
     await db.commit()
 
 
+async def export_categories_csv(db: AsyncSession, tenant_id: uuid.UUID) -> str:
+    query = (
+        select(Category)
+        .options(selectinload(Category.parent))
+        .where(Category.tenant_id == tenant_id)
+        .order_by(Category.parent_id.nullsfirst(), Category.sort_order, Category.name)
+    )
+    res = await db.execute(query)
+    categories = res.scalars().all()
+
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow(["name", "parent_category", "code", "description", "sort_order", "is_active"])
+
+    for c in categories:
+        parent_name = c.parent.name if c.parent else ""
+        writer.writerow([
+            c.name,
+            parent_name,
+            c.code or "",
+            c.description or "",
+            c.sort_order if c.sort_order is not None else 0,
+            "true" if c.is_active else "false",
+        ])
+
+    return output.getvalue()
+
+
+async def import_categories_csv(
+    db: AsyncSession, tenant_id: uuid.UUID, user_id: uuid.UUID, file: UploadFile
+) -> Dict[str, Any]:
+    content = await file.read()
+    text = content.decode("utf-8-sig")
+    reader = csv.DictReader(io.StringIO(text))
+    rows = []
+    for r in reader:
+        cleaned = {k.strip(): (v.strip() if v else "") for k, v in r.items() if k}
+        rows.append(cleaned)
+
+    imported = 0
+    updated = 0
+    skipped = 0
+    errors = []
+
+    # Cache existing categories in tenant by (lowercase name, parent_id)
+    existing_res = await db.execute(select(Category).where(Category.tenant_id == tenant_id))
+    all_cats = existing_res.scalars().all()
+    roots_by_name = {c.name.lower(): c for c in all_cats if not c.parent_id}
+    by_name_and_parent = {(c.name.lower(), c.parent_id): c for c in all_cats}
+
+    # Pass 1: Root categories (no parent_category specified)
+    root_rows = [r for r in rows if not r.get("parent_category")]
+    sub_rows = [r for r in rows if r.get("parent_category")]
+
+    for idx, r in enumerate(root_rows, start=1):
+        name = r.get("name")
+        if not name:
+            skipped += 1
+            errors.append(f"Row {idx}: Missing category 'name'")
+            continue
+
+        code = r.get("code") or None
+        description = r.get("description") or None
+        try:
+            sort_order = int(r.get("sort_order") or 0)
+        except ValueError:
+            sort_order = 0
+        is_active = r.get("is_active", "true").lower() in ("true", "1", "yes")
+
+        existing = roots_by_name.get(name.lower())
+        if existing:
+            existing.code = code or existing.code
+            existing.description = description or existing.description
+            existing.sort_order = sort_order
+            existing.is_active = is_active
+            existing.updated_by = user_id
+            updated += 1
+        else:
+            cat = Category(
+                tenant_id=tenant_id,
+                parent_id=None,
+                name=name,
+                code=code,
+                description=description,
+                sort_order=sort_order,
+                is_active=is_active,
+                created_by=user_id,
+            )
+            db.add(cat)
+            await db.flush()
+            roots_by_name[name.lower()] = cat
+            by_name_and_parent[(name.lower(), None)] = cat
+            imported += 1
+
+    # Pass 2: Subcategories (with parent_category specified)
+    for idx, r in enumerate(sub_rows, start=len(root_rows) + 1):
+        name = r.get("name")
+        parent_name = r.get("parent_category", "").strip()
+        if not name:
+            skipped += 1
+            errors.append(f"Row {idx}: Missing category 'name'")
+            continue
+
+        parent_cat = roots_by_name.get(parent_name.lower())
+        if not parent_cat:
+            # Auto-create the missing parent category
+            parent_cat = Category(
+                tenant_id=tenant_id,
+                parent_id=None,
+                name=parent_name,
+                created_by=user_id,
+            )
+            db.add(parent_cat)
+            await db.flush()
+            roots_by_name[parent_name.lower()] = parent_cat
+            by_name_and_parent[(parent_name.lower(), None)] = parent_cat
+            imported += 1
+
+        code = r.get("code") or None
+        description = r.get("description") or None
+        try:
+            sort_order = int(r.get("sort_order") or 0)
+        except ValueError:
+            sort_order = 0
+        is_active = r.get("is_active", "true").lower() in ("true", "1", "yes")
+
+        existing_sub = by_name_and_parent.get((name.lower(), parent_cat.id))
+        if existing_sub:
+            existing_sub.code = code or existing_sub.code
+            existing_sub.description = description or existing_sub.description
+            existing_sub.sort_order = sort_order
+            existing_sub.is_active = is_active
+            existing_sub.updated_by = user_id
+            updated += 1
+        else:
+            cat = Category(
+                tenant_id=tenant_id,
+                parent_id=parent_cat.id,
+                name=name,
+                code=code,
+                description=description,
+                sort_order=sort_order,
+                is_active=is_active,
+                created_by=user_id,
+            )
+            db.add(cat)
+            await db.flush()
+            by_name_and_parent[(name.lower(), parent_cat.id)] = cat
+            imported += 1
+
+    await log_audit(
+        db, tenant_id, user_id, "IMPORT", "categories", None, f"Imported {imported}, updated {updated}, skipped {skipped} categories"
+    )
+    await db.commit()
+    return {"imported": imported, "updated": updated, "skipped": skipped, "errors": errors}
+
+
 # ==================== BRANDS ====================
 
 async def create_brand(db: AsyncSession, tenant_id: uuid.UUID, user_id: uuid.UUID, data: BrandCreate) -> Brand:
@@ -241,6 +401,82 @@ async def archive_brand(db: AsyncSession, tenant_id: uuid.UUID, user_id: uuid.UU
     brand.is_active = False
     await log_audit(db, tenant_id, user_id, "ARCHIVE", "brand", brand.id, f"Archived brand {brand.name}")
     await db.commit()
+
+
+async def export_brands_csv(db: AsyncSession, tenant_id: uuid.UUID) -> str:
+    query = select(Brand).where(Brand.tenant_id == tenant_id).order_by(Brand.name)
+    res = await db.execute(query)
+    brands = res.scalars().all()
+
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow(["name", "description", "website", "is_active"])
+
+    for b in brands:
+        writer.writerow([
+            b.name,
+            b.description or "",
+            b.website or "",
+            "true" if b.is_active else "false",
+        ])
+
+    return output.getvalue()
+
+
+async def import_brands_csv(
+    db: AsyncSession, tenant_id: uuid.UUID, user_id: uuid.UUID, file: UploadFile
+) -> Dict[str, Any]:
+    content = await file.read()
+    text = content.decode("utf-8-sig")
+    reader = csv.DictReader(io.StringIO(text))
+    rows = []
+    for r in reader:
+        cleaned = {k.strip(): (v.strip() if v else "") for k, v in r.items() if k}
+        rows.append(cleaned)
+
+    imported = 0
+    updated = 0
+    skipped = 0
+    errors = []
+
+    existing_res = await db.execute(select(Brand).where(Brand.tenant_id == tenant_id))
+    brands_by_name = {b.name.lower(): b for b in existing_res.scalars().all()}
+
+    for idx, r in enumerate(rows, start=1):
+        name = r.get("name")
+        if not name:
+            skipped += 1
+            errors.append(f"Row {idx}: Missing brand 'name'")
+            continue
+
+        description = r.get("description") or None
+        website = r.get("website") or None
+        is_active = r.get("is_active", "true").lower() in ("true", "1", "yes")
+
+        existing = brands_by_name.get(name.lower())
+        if existing:
+            existing.description = description or existing.description
+            existing.website = website or existing.website
+            existing.is_active = is_active
+            updated += 1
+        else:
+            brand = Brand(
+                tenant_id=tenant_id,
+                name=name,
+                description=description,
+                website=website,
+                is_active=is_active,
+            )
+            db.add(brand)
+            await db.flush()
+            brands_by_name[name.lower()] = brand
+            imported += 1
+
+    await log_audit(
+        db, tenant_id, user_id, "IMPORT", "brands", None, f"Imported {imported}, updated {updated}, skipped {skipped} brands"
+    )
+    await db.commit()
+    return {"imported": imported, "updated": updated, "skipped": skipped, "errors": errors}
 
 
 # ==================== UNITS OF MEASURE ====================

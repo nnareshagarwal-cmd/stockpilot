@@ -14,6 +14,8 @@ import {
   Popconfirm,
   Tooltip,
   message,
+  Upload,
+  Alert,
 } from 'antd'
 import {
   PlusOutlined,
@@ -21,6 +23,10 @@ import {
   DeleteOutlined,
   CopyOutlined,
   HolderOutlined,
+  DownloadOutlined,
+  UploadOutlined,
+  FileTextOutlined,
+  InboxOutlined,
 } from '@ant-design/icons'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import apiClient from '../../../api/client'
@@ -34,6 +40,18 @@ export const CategoriesPage: React.FC = () => {
   const [editingCategory, setEditingCategory] = useState<any | null>(null)
   const [isDuplicating, setIsDuplicating] = useState(false)
   const [form] = Form.useForm()
+
+  // Export & Import states
+  const [exporting, setExporting] = useState(false)
+  const [importModalOpen, setImportModalOpen] = useState(false)
+  const [importing, setImporting] = useState(false)
+  const [importFile, setImportFile] = useState<File | null>(null)
+  const [importResult, setImportResult] = useState<{
+    imported: number
+    updated: number
+    skipped: number
+    errors: string[]
+  } | null>(null)
 
   // Draggable Modal state
   const [position, setPosition] = useState({ x: 0, y: 0 })
@@ -70,6 +88,68 @@ export const CategoriesPage: React.FC = () => {
       window.removeEventListener('mouseup', onMouseUp)
     }
   }, [dragging, rel])
+
+  const handleExportCategories = async () => {
+    try {
+      setExporting(true)
+      const res = await apiClient.get('/categories/export', { responseType: 'blob' })
+      const blob = new Blob([res.data], { type: 'text/csv;charset=utf-8;' })
+      const url = window.URL.createObjectURL(blob)
+      const link = document.createElement('a')
+      link.href = url
+      link.setAttribute('download', `categories_export_${new Date().toISOString().slice(0, 10)}.csv`)
+      document.body.appendChild(link)
+      link.click()
+      document.body.removeChild(link)
+      window.URL.revokeObjectURL(url)
+      message.success('Categories exported successfully')
+    } catch (err: any) {
+      message.error(err.response?.data?.error?.message || 'Failed to export categories')
+    } finally {
+      setExporting(false)
+    }
+  }
+
+  const handleDownloadTemplate = () => {
+    const csvContent =
+      'name,parent_category,code,description,sort_order,is_active\n' +
+      'Living Room,,LIV,Living room furniture and decor,1,true\n' +
+      '3 Seater Sofas,Living Room,LIV-SOF-3S,Comfortable 3 seater sofas,1,true\n' +
+      'Dining Sets,,DIN,Dining room sets and tables,2,true\n'
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' })
+    const url = window.URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.setAttribute('download', 'categories_template.csv')
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+    window.URL.revokeObjectURL(url)
+  }
+
+  const handleCommitImport = async () => {
+    if (!importFile) {
+      message.warning('Please select a CSV file first')
+      return
+    }
+    try {
+      setImporting(true)
+      const formData = new FormData()
+      formData.append('file', importFile)
+      const res = await apiClient.post('/categories/import', formData, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      })
+      const resultData = res.data.data
+      setImportResult(resultData)
+      message.success(`Import finished: ${resultData.imported} created, ${resultData.updated} updated`)
+      queryClient.invalidateQueries({ queryKey: ['categories-tree'] })
+      queryClient.invalidateQueries({ queryKey: ['categories-flat'] })
+    } catch (err: any) {
+      message.error(err.response?.data?.error?.message || 'Failed to import categories')
+    } finally {
+      setImporting(false)
+    }
+  }
 
   const { data: treeData, isLoading } = useQuery({
     queryKey: ['categories-tree'],
@@ -234,9 +314,24 @@ export const CategoriesPage: React.FC = () => {
           </Title>
           <Text type="secondary">Manage hierarchical categories for your store and catalogue</Text>
         </div>
-        <Button type="primary" icon={<PlusOutlined />} onClick={() => handleOpenModal()}>
-          Add Category
-        </Button>
+        <Space size={12}>
+          <Button icon={<DownloadOutlined />} onClick={handleExportCategories} loading={exporting}>
+            Export CSV
+          </Button>
+          <Button
+            icon={<UploadOutlined />}
+            onClick={() => {
+              setImportResult(null)
+              setImportFile(null)
+              setImportModalOpen(true)
+            }}
+          >
+            Import CSV
+          </Button>
+          <Button type="primary" icon={<PlusOutlined />} onClick={() => handleOpenModal()}>
+            Add Category
+          </Button>
+        </Space>
       </div>
 
       <Card style={{ borderRadius: '12px' }} loading={isLoading}>
@@ -336,6 +431,117 @@ export const CategoriesPage: React.FC = () => {
             <Input.TextArea rows={2} placeholder="Optional notes or details" />
           </Form.Item>
         </Form>
+      </Modal>
+
+      {/* CSV Import Modal */}
+      <Modal
+        title={
+          <Space>
+            <UploadOutlined style={{ color: '#1677ff' }} />
+            <span style={{ fontWeight: 600 }}>Import Categories from CSV</span>
+          </Space>
+        }
+        open={importModalOpen}
+        onCancel={() => {
+          setImportModalOpen(false)
+          setImportFile(null)
+          setImportResult(null)
+        }}
+        footer={[
+          <Button
+            key="template"
+            icon={<FileTextOutlined />}
+            onClick={handleDownloadTemplate}
+            style={{ float: 'left' }}
+          >
+            Download Sample CSV
+          </Button>,
+          <Button
+            key="cancel"
+            onClick={() => {
+              setImportModalOpen(false)
+              setImportFile(null)
+              setImportResult(null)
+            }}
+          >
+            Close
+          </Button>,
+          <Button
+            key="submit"
+            type="primary"
+            icon={<UploadOutlined />}
+            loading={importing}
+            disabled={!importFile}
+            onClick={handleCommitImport}
+          >
+            Upload & Import
+          </Button>,
+        ]}
+        width={600}
+      >
+        <div style={{ marginBottom: 16 }}>
+          <Text type="secondary">
+            Upload a CSV to quickly bulk-create or update categories in this tenant. Standard columns:{' '}
+            <code>name</code>, <code>parent_category</code>, <code>code</code>, <code>description</code>,{' '}
+            <code>sort_order</code>, <code>is_active</code>.
+          </Text>
+        </div>
+
+        <Upload.Dragger
+          accept=".csv"
+          maxCount={1}
+          beforeUpload={(file) => {
+            setImportFile(file)
+            setImportResult(null)
+            return false
+          }}
+          onRemove={() => {
+            setImportFile(null)
+            setImportResult(null)
+          }}
+          fileList={importFile ? [importFile as any] : []}
+          style={{ padding: '20px 0', marginBottom: 16 }}
+        >
+          <p className="ant-upload-drag-icon">
+            <InboxOutlined style={{ color: '#1677ff', fontSize: 36 }} />
+          </p>
+          <p className="ant-upload-text" style={{ fontSize: 14, fontWeight: 500 }}>
+            Click or drag CSV file to this area to import
+          </p>
+          <p className="ant-upload-hint" style={{ color: '#94a3b8', fontSize: 12 }}>
+            Supports cross-dealer category portability via parent category names
+          </p>
+        </Upload.Dragger>
+
+        {importResult && (
+          <Alert
+            type={importResult.errors && importResult.errors.length > 0 ? 'warning' : 'success'}
+            showIcon
+            message={
+              importResult.errors && importResult.errors.length > 0
+                ? 'Import completed with warnings'
+                : 'Categories imported successfully'
+            }
+            description={
+              <div>
+                <p style={{ margin: '4px 0' }}>
+                  <b>{importResult.imported}</b> categories created, <b>{importResult.updated}</b> updated,{' '}
+                  <b>{importResult.skipped}</b> skipped.
+                </p>
+                {importResult.errors && importResult.errors.length > 0 && (
+                  <ul style={{ paddingLeft: 20, margin: '8px 0 0', maxHeight: 120, overflowY: 'auto' }}>
+                    {importResult.errors.map((err, i) => (
+                      <li key={i} style={{ color: '#dc2626', fontSize: 12 }}>
+                        {err}
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            }
+            style={{ borderRadius: 8 }}
+          />
+        )}
       </Modal>
     </div>
   )

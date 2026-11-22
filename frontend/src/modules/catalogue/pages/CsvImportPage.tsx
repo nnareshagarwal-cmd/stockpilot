@@ -17,6 +17,8 @@ import {
   CheckCircleOutlined,
   CloseCircleOutlined,
   ArrowLeftOutlined,
+  DownloadOutlined,
+  FileTextOutlined,
 } from '@ant-design/icons'
 import { useNavigate } from 'react-router-dom'
 import apiClient from '../../../api/client'
@@ -32,6 +34,22 @@ export const CsvImportPage: React.FC = () => {
   const [importing, setImporting] = useState(false)
   const [importSummary, setImportSummary] = useState<any | null>(null)
   const navigate = useNavigate()
+
+  const handleDownloadTemplate = () => {
+    const csvContent =
+      'name,sku,category,brand,model,unit,purchase_price,selling_price,mrp,barcode,description\n' +
+      'Stargazer 3-Seater Velvet Luxury Sofa,WF-SOFA-3S-NVY,3 Seater Sofas,WoodFurn,WF-2024,PCS,16500.00,24999.00,32999.00,8901234567890,Luxury 3-seater sofa with velvet upholstery\n' +
+      'King Chesterfield Deep Tufted 3-Seater Sofa,DUR-CHEST-3S-BRN,3 Seater Sofas,Durian,DUR-CHEST,PCS,24500.00,38999.00,49999.00,8901234567891,Classic deep tufted Chesterfield sofa\n'
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' })
+    const url = window.URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.setAttribute('download', 'products_template.csv')
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+    window.URL.revokeObjectURL(url)
+  }
 
   const handleFileSelect = async (selectedFile: File) => {
     setFile(selectedFile)
@@ -132,14 +150,19 @@ export const CsvImportPage: React.FC = () => {
 
   return (
     <div style={{ maxWidth: '1100px', margin: '0 auto', paddingBottom: '48px' }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: '16px', marginBottom: '24px' }}>
-        <Button icon={<ArrowLeftOutlined />} onClick={() => navigate('/products')} />
-        <div>
-          <Title level={3} style={{ margin: 0, fontWeight: 700 }}>
-            Bulk CSV Product Import
-          </Title>
-          <Text type="secondary">Upload and validate your bulk product catalogue before committing</Text>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '24px', flexWrap: 'wrap', gap: '16px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+          <Button icon={<ArrowLeftOutlined />} onClick={() => navigate('/products')} />
+          <div>
+            <Title level={3} style={{ margin: 0, fontWeight: 700 }}>
+              Bulk CSV Product Import
+            </Title>
+            <Text type="secondary">Upload and validate your bulk product catalogue before committing</Text>
+          </div>
         </div>
+        <Button icon={<DownloadOutlined />} onClick={handleDownloadTemplate}>
+          Download Sample Template
+        </Button>
       </div>
 
       {/* Upload Zone */}

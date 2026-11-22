@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react'
+import React, { useState, useEffect, useMemo, useRef } from 'react'
 import {
   Table,
   Button,
@@ -25,30 +25,293 @@ import {
   EyeOutlined,
   AppstoreOutlined,
 } from '@ant-design/icons'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useSearchParams, useLocation } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import apiClient from '../../../api/client'
 import { PaginatedResponse, ProductSearchItem, ApiResponse } from '../../../api/types'
 
 const { Title, Text } = Typography
 
-export const ProductListPage: React.FC = () => {
-  const [page, setPage] = useState(1)
-  const [pageSize, setPageSize] = useState(20)
-  const [searchInput, setSearchInput] = useState('')
-  const [search, setSearch] = useState('')
-  const [mainCategoryId, setMainCategoryId] = useState<string | undefined>(undefined)
-  const [subcategoryId, setSubcategoryId] = useState<string | undefined>(undefined)
-  const [brandId, setBrandId] = useState<string | undefined>(undefined)
+const FILTER_STORAGE_KEY = 'stockpilot_product_filters'
 
+interface ProductFilters {
+  page: number
+  pageSize: number
+  search: string
+  categoryId?: string
+  subcategoryId?: string
+  brandId?: string
+  stockStatus?: 'all' | 'in_stock' | 'out_of_stock' | 'low_stock'
+}
+
+function getStoredFilters(): Partial<ProductFilters> | null {
+  try {
+    const raw = sessionStorage.getItem(FILTER_STORAGE_KEY)
+    if (raw) return JSON.parse(raw)
+  } catch (e) {
+    // Ignore parse errors
+  }
+  return null
+}
+
+function saveStoredFilters(filters: ProductFilters) {
+  try {
+    sessionStorage.setItem(FILTER_STORAGE_KEY, JSON.stringify(filters))
+  } catch (e) {
+    // Ignore storage errors
+  }
+}
+
+function clearStoredFilters() {
+  try {
+    sessionStorage.removeItem(FILTER_STORAGE_KEY)
+  } catch (e) {
+    // Ignore storage errors
+  }
+}
+
+export const ProductListPage: React.FC = () => {
+  const [searchParams, setSearchParams] = useSearchParams()
+  const location = useLocation()
   const navigate = useNavigate()
   const queryClient = useQueryClient()
+
+  // Determine initial filter values: URL search params first, then sessionStorage backup
+  const initialFilters = useMemo<ProductFilters>(() => {
+    // Check if explicitly requested to clear filters (e.g. from Dashboard "Total Products")
+    if (searchParams.get('clear') === 'true') {
+      clearStoredFilters()
+      return {
+        page: 1,
+        pageSize: 20,
+        search: '',
+        categoryId: undefined,
+        subcategoryId: undefined,
+        brandId: undefined,
+        stockStatus: 'all',
+      }
+    }
+
+    const rawStockStatus = searchParams.get('stock_status')
+    const validStockStatus =
+      rawStockStatus === 'in_stock' || rawStockStatus === 'out_of_stock' || rawStockStatus === 'low_stock'
+        ? rawStockStatus
+        : 'all'
+
+    const hasUrlParams =
+      searchParams.has('page') ||
+      searchParams.has('page_size') ||
+      searchParams.has('search') ||
+      searchParams.has('category_id') ||
+      searchParams.has('subcategory_id') ||
+      searchParams.has('brand_id') ||
+      searchParams.has('stock_status')
+
+    if (hasUrlParams) {
+      const filters: ProductFilters = {
+        page: parseInt(searchParams.get('page') || '1', 10) || 1,
+        pageSize: parseInt(searchParams.get('page_size') || '20', 10) || 20,
+        search: searchParams.get('search') || '',
+        categoryId: searchParams.get('category_id') || undefined,
+        subcategoryId: searchParams.get('subcategory_id') || undefined,
+        brandId: searchParams.get('brand_id') || undefined,
+        stockStatus: validStockStatus,
+      }
+      saveStoredFilters(filters)
+      return filters
+    }
+
+    const stored = getStoredFilters()
+    if (
+      stored &&
+      (stored.categoryId ||
+        stored.subcategoryId ||
+        stored.brandId ||
+        stored.search ||
+        (stored.stockStatus && stored.stockStatus !== 'all') ||
+        (stored.page && stored.page > 1))
+    ) {
+      return {
+        page: stored.page || 1,
+        pageSize: stored.pageSize || 20,
+        search: stored.search || '',
+        categoryId: stored.categoryId,
+        subcategoryId: stored.subcategoryId,
+        brandId: stored.brandId,
+        stockStatus: stored.stockStatus || 'all',
+      }
+    }
+
+    return {
+      page: 1,
+      pageSize: 20,
+      search: '',
+      categoryId: undefined,
+      subcategoryId: undefined,
+      brandId: undefined,
+      stockStatus: 'all',
+    }
+  }, [])
+
+  const [page, setPage] = useState<number>(initialFilters.page)
+  const [pageSize, setPageSize] = useState<number>(initialFilters.pageSize)
+  const [searchInput, setSearchInput] = useState<string>(initialFilters.search)
+  const [search, setSearch] = useState<string>(initialFilters.search)
+  const [mainCategoryId, setMainCategoryId] = useState<string | undefined>(initialFilters.categoryId)
+  const [subcategoryId, setSubcategoryId] = useState<string | undefined>(initialFilters.subcategoryId)
+  const [brandId, setBrandId] = useState<string | undefined>(initialFilters.brandId)
+  const [stockStatus, setStockStatus] = useState<'all' | 'in_stock' | 'out_of_stock' | 'low_stock'>(
+    initialFilters.stockStatus || 'all'
+  )
+  const [exporting, setExporting] = useState(false)
+
+  // If initial filters were restored from sessionStorage and not in URL, sync them to URL
+  useEffect(() => {
+    if (searchParams.get('clear') === 'true') {
+      return
+    }
+
+    const hasUrlParams =
+      searchParams.has('page') ||
+      searchParams.has('search') ||
+      searchParams.has('category_id') ||
+      searchParams.has('subcategory_id') ||
+      searchParams.has('brand_id') ||
+      searchParams.has('stock_status')
+
+    if (
+      !hasUrlParams &&
+      (initialFilters.categoryId ||
+        initialFilters.subcategoryId ||
+        initialFilters.brandId ||
+        initialFilters.search ||
+        (initialFilters.stockStatus && initialFilters.stockStatus !== 'all') ||
+        initialFilters.page > 1)
+    ) {
+      const params: Record<string, string> = {}
+      if (initialFilters.page > 1) params.page = initialFilters.page.toString()
+      if (initialFilters.pageSize !== 20) params.page_size = initialFilters.pageSize.toString()
+      if (initialFilters.search) params.search = initialFilters.search
+      if (initialFilters.categoryId) params.category_id = initialFilters.categoryId
+      if (initialFilters.subcategoryId) params.subcategory_id = initialFilters.subcategoryId
+      if (initialFilters.brandId) params.brand_id = initialFilters.brandId
+      if (initialFilters.stockStatus && initialFilters.stockStatus !== 'all') {
+        params.stock_status = initialFilters.stockStatus
+      }
+      setSearchParams(params, { replace: true })
+    }
+  }, [])
+
+  // Sync state if URL searchParams change (e.g. browser back/forward or navigation from Dashboard)
+  useEffect(() => {
+    if (searchParams.get('clear') === 'true') {
+      clearStoredFilters()
+      setPage(1)
+      setPageSize(20)
+      setSearch('')
+      setSearchInput('')
+      setMainCategoryId(undefined)
+      setSubcategoryId(undefined)
+      setBrandId(undefined)
+      setStockStatus('all')
+      setSearchParams({}, { replace: true })
+      return
+    }
+
+    const p = parseInt(searchParams.get('page') || '1', 10) || 1
+    const ps = parseInt(searchParams.get('page_size') || '20', 10) || 20
+    const s = searchParams.get('search') || ''
+    const cat = searchParams.get('category_id') || undefined
+    const sub = searchParams.get('subcategory_id') || undefined
+    const br = searchParams.get('brand_id') || undefined
+    const rawSt = searchParams.get('stock_status')
+    const st: 'all' | 'in_stock' | 'out_of_stock' | 'low_stock' =
+      rawSt === 'in_stock' || rawSt === 'out_of_stock' || rawSt === 'low_stock' ? rawSt : 'all'
+
+    setPage(p)
+    setPageSize(ps)
+    setSearch(s)
+    setSearchInput(s)
+    setMainCategoryId(cat)
+    setSubcategoryId(sub)
+    setBrandId(br)
+    setStockStatus(st)
+
+    if (cat || sub || br || s || st !== 'all' || p > 1) {
+      saveStoredFilters({
+        page: p,
+        pageSize: ps,
+        search: s,
+        categoryId: cat,
+        subcategoryId: sub,
+        brandId: br,
+        stockStatus: st,
+      })
+    }
+  }, [searchParams])
+
+  // Helper to update state, URL searchParams, and sessionStorage
+  const updateFilters = (updates: {
+    page?: number
+    pageSize?: number
+    search?: string
+    category_id?: string | null | undefined
+    subcategory_id?: string | null | undefined
+    brand_id?: string | null | undefined
+    stock_status?: 'all' | 'in_stock' | 'out_of_stock' | 'low_stock' | null | undefined
+  }) => {
+    const newPage = 'page' in updates && updates.page !== undefined ? updates.page : page
+    const newPageSize =
+      'pageSize' in updates && updates.pageSize !== undefined ? updates.pageSize : pageSize
+    const newSearch = 'search' in updates && updates.search !== undefined ? updates.search : search
+    const newCatId = 'category_id' in updates ? updates.category_id || undefined : mainCategoryId
+    const newSubcatId =
+      'subcategory_id' in updates ? updates.subcategory_id || undefined : subcategoryId
+    const newBrandId = 'brand_id' in updates ? updates.brand_id || undefined : brandId
+    const newStockStatus =
+      'stock_status' in updates ? updates.stock_status || 'all' : stockStatus
+
+    setPage(newPage)
+    setPageSize(newPageSize)
+    setSearch(newSearch)
+    setSearchInput(newSearch)
+    setMainCategoryId(newCatId)
+    setSubcategoryId(newSubcatId)
+    setBrandId(newBrandId)
+    setStockStatus(newStockStatus)
+
+    const params: Record<string, string> = {}
+    if (newPage > 1) params.page = newPage.toString()
+    if (newPageSize !== 20) params.page_size = newPageSize.toString()
+    if (newSearch) params.search = newSearch
+    if (newCatId) params.category_id = newCatId
+    if (newSubcatId) params.subcategory_id = newSubcatId
+    if (newBrandId) params.brand_id = newBrandId
+    if (newStockStatus && newStockStatus !== 'all') params.stock_status = newStockStatus
+
+    setSearchParams(params, { replace: true })
+
+    if (newCatId || newSubcatId || newBrandId || newSearch || (newStockStatus && newStockStatus !== 'all') || newPage > 1) {
+      saveStoredFilters({
+        page: newPage,
+        pageSize: newPageSize,
+        search: newSearch,
+        categoryId: newCatId,
+        subcategoryId: newSubcatId,
+        brandId: newBrandId,
+        stockStatus: newStockStatus,
+      })
+    } else {
+      clearStoredFilters()
+    }
+  }
 
   // Debounce search input to filter table smoothly
   useEffect(() => {
     const timer = setTimeout(() => {
-      setSearch(searchInput)
-      setPage(1)
+      if (searchInput !== search) {
+        updateFilters({ search: searchInput, page: 1 })
+      }
     }, 250)
     return () => clearTimeout(timer)
   }, [searchInput])
@@ -84,7 +347,7 @@ export const ProductListPage: React.FC = () => {
 
   // Fetch paginated products
   const { data: productData, isLoading } = useQuery({
-    queryKey: ['products', page, pageSize, search, mainCategoryId, subcategoryId, brandId],
+    queryKey: ['products', page, pageSize, search, mainCategoryId, subcategoryId, brandId, stockStatus],
     queryFn: async () => {
       const params = new URLSearchParams({
         page: page.toString(),
@@ -95,6 +358,13 @@ export const ProductListPage: React.FC = () => {
       if (mainCategoryId) params.append('category_id', mainCategoryId)
       if (subcategoryId) params.append('subcategory_id', subcategoryId)
       if (brandId) params.append('brand_id', brandId)
+      if (stockStatus === 'in_stock') {
+        params.append('in_stock', 'true')
+      } else if (stockStatus === 'out_of_stock') {
+        params.append('in_stock', 'false')
+      } else if (stockStatus === 'low_stock') {
+        params.append('low_stock', 'true')
+      }
 
       const res = await apiClient.get<PaginatedResponse<ProductSearchItem>>(`/products?${params.toString()}`)
       return res.data
@@ -153,13 +423,33 @@ export const ProductListPage: React.FC = () => {
     },
   })
 
-  const handleExport = () => {
-    const params = new URLSearchParams()
-    if (search) params.append('search', search)
-    if (mainCategoryId) params.append('category_id', mainCategoryId)
-    if (subcategoryId) params.append('subcategory_id', subcategoryId)
-    if (brandId) params.append('brand_id', brandId)
-    window.open(`${apiClient.defaults.baseURL}/products/export?${params.toString()}`, '_blank')
+  const handleExport = async () => {
+    try {
+      setExporting(true)
+      const params = new URLSearchParams()
+      if (search) params.append('search', search)
+      if (mainCategoryId) params.append('category_id', mainCategoryId)
+      if (subcategoryId) params.append('subcategory_id', subcategoryId)
+      if (brandId) params.append('brand_id', brandId)
+
+      const res = await apiClient.get(`/products/export?${params.toString()}`, {
+        responseType: 'blob',
+      })
+      const blob = new Blob([res.data], { type: 'text/csv;charset=utf-8;' })
+      const url = window.URL.createObjectURL(blob)
+      const link = document.createElement('a')
+      link.href = url
+      link.setAttribute('download', `products_export_${new Date().toISOString().slice(0, 10)}.csv`)
+      document.body.appendChild(link)
+      link.click()
+      document.body.removeChild(link)
+      window.URL.revokeObjectURL(url)
+      message.success('Products exported successfully')
+    } catch (err: any) {
+      message.error(err.response?.data?.error?.message || 'Failed to export products')
+    } finally {
+      setExporting(false)
+    }
   }
 
   const columns = [
@@ -198,7 +488,15 @@ export const ProductListPage: React.FC = () => {
       key: 'name',
       render: (name: string, record: ProductSearchItem) => (
         <div>
-          <Text strong style={{ cursor: 'pointer', color: '#1677ff' }} onClick={() => navigate(`/products/${record.id}`)}>
+          <Text
+            strong
+            style={{ cursor: 'pointer', color: '#1677ff' }}
+            onClick={() =>
+              navigate(`/products/${record.id}`, {
+                state: { returnSearch: searchParams.toString() },
+              })
+            }
+          >
             {name}
           </Text>
           {record.model && (
@@ -208,12 +506,6 @@ export const ProductListPage: React.FC = () => {
           )}
         </div>
       ),
-    },
-    {
-      title: 'Default SKU',
-      dataIndex: 'default_sku',
-      key: 'sku',
-      render: (sku: string) => (sku ? <Tag color="blue">{sku}</Tag> : <Text type="secondary">—</Text>),
     },
     {
       title: 'Category',
@@ -236,24 +528,65 @@ export const ProductListPage: React.FC = () => {
       render: (brand: string) => brand || <Text type="secondary">—</Text>,
     },
     {
-      title: 'Selling Price',
-      dataIndex: 'selling_price',
-      key: 'selling_price',
-      render: (price: number) =>
-        price !== undefined ? (
-          <Text strong>₹{Number(price).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</Text>
+      title: 'Cost Price',
+      key: 'cost_price',
+      align: 'right' as const,
+      width: 120,
+      render: (_: any, record: ProductSearchItem) => {
+        const val = record.cost_price ?? record.purchase_price
+        return val !== undefined && val !== null ? (
+          <Text style={{ color: '#475569', fontWeight: 500 }}>
+            ₹{Number(val).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+          </Text>
         ) : (
-          '—'
+          <Text type="secondary">—</Text>
+        )
+      },
+    },
+    {
+      title: 'MRP',
+      dataIndex: 'mrp',
+      key: 'mrp',
+      align: 'right' as const,
+      width: 110,
+      render: (mrp: number) =>
+        mrp !== undefined && mrp !== null ? (
+          <Text strong style={{ color: '#0f172a' }}>
+            ₹{Number(mrp).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+          </Text>
+        ) : (
+          <Text type="secondary">—</Text>
         ),
     },
     {
-      title: 'Status',
-      dataIndex: 'is_active',
-      key: 'status',
-      width: 100,
-      render: (active: boolean) => (
-        <Tag color={active ? 'green' : 'default'}>{active ? 'Active' : 'Archived'}</Tag>
-      ),
+      title: 'Selling Price',
+      dataIndex: 'selling_price',
+      key: 'selling_price',
+      align: 'right' as const,
+      width: 125,
+      render: (price: number) =>
+        price !== undefined && price !== null ? (
+          <Text strong style={{ color: '#1677ff' }}>
+            ₹{Number(price).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+          </Text>
+        ) : (
+          <Text type="secondary">—</Text>
+        ),
+    },
+    {
+      title: 'Stock',
+      dataIndex: 'total_stock',
+      key: 'total_stock',
+      align: 'right' as const,
+      width: 120,
+      render: (stock: number) => {
+        const qty = Number(stock || 0)
+        return (
+          <Tag color={qty > 0 ? 'green' : 'default'} style={{ fontWeight: 600 }}>
+            {qty > 0 ? `${qty.toLocaleString()} units` : 'Out of stock'}
+          </Tag>
+        )
+      },
     },
     {
       title: 'Actions',
@@ -265,13 +598,21 @@ export const ProductListPage: React.FC = () => {
             type="text"
             icon={<EyeOutlined />}
             size="small"
-            onClick={() => navigate(`/products/${record.id}`)}
+            onClick={() =>
+              navigate(`/products/${record.id}`, {
+                state: { returnSearch: searchParams.toString() },
+              })
+            }
           />
           <Button
             type="text"
             icon={<EditOutlined />}
             size="small"
-            onClick={() => navigate(`/products/${record.id}/edit`)}
+            onClick={() =>
+              navigate(`/products/${record.id}/edit`, {
+                state: { returnSearch: searchParams.toString() },
+              })
+            }
           />
           {record.is_active && (
             <Popconfirm
@@ -309,13 +650,21 @@ export const ProductListPage: React.FC = () => {
           <Text type="secondary">Manage your master product catalogue, variants, and pricing</Text>
         </div>
         <Space size={12}>
-          <Button icon={<DownloadOutlined />} onClick={handleExport}>
+          <Button icon={<DownloadOutlined />} onClick={handleExport} loading={exporting}>
             Export CSV
           </Button>
           <Button icon={<UploadOutlined />} onClick={() => navigate('/products/import')}>
             Import CSV
           </Button>
-          <Button type="primary" icon={<PlusOutlined />} onClick={() => navigate('/products/new')}>
+          <Button
+            type="primary"
+            icon={<PlusOutlined />}
+            onClick={() =>
+              navigate('/products/new', {
+                state: { returnSearch: searchParams.toString() },
+              })
+            }
+          >
             Add Product
           </Button>
         </Space>
@@ -325,9 +674,25 @@ export const ProductListPage: React.FC = () => {
       <Row gutter={[12, 12]} style={{ marginBottom: 14 }}>
         <Col xs={24} sm={8}>
           <ThinStatCard
-            label="Total Products"
+            label={
+              stockStatus === 'in_stock'
+                ? 'Stocked Products'
+                : stockStatus === 'out_of_stock'
+                ? 'Out of Stock Products'
+                : stockStatus === 'low_stock'
+                ? 'Low Stock Products'
+                : 'Total Products'
+            }
             value={productData?.pagination?.total_items || 0}
-            accentColor="#2563eb"
+            accentColor={
+              stockStatus === 'in_stock'
+                ? '#16a34a'
+                : stockStatus === 'out_of_stock'
+                ? '#dc2626'
+                : stockStatus === 'low_stock'
+                ? '#f59e0b'
+                : '#2563eb'
+            }
           />
         </Col>
         <Col xs={24} sm={8}>
@@ -371,9 +736,7 @@ export const ProductListPage: React.FC = () => {
               value={searchInput}
               onChange={(val) => setSearchInput(val)}
               onSelect={(val: string) => {
-                setSearchInput(val)
-                setSearch(val)
-                setPage(1)
+                updateFilters({ search: val, page: 1 })
               }}
               style={{ width: 260 }}
               popupMatchSelectWidth={false}
@@ -391,11 +754,25 @@ export const ProductListPage: React.FC = () => {
                 placeholder="Search product, SKU..."
                 allowClear
                 onPressEnter={() => {
-                  setSearch(searchInput)
-                  setPage(1)
+                  updateFilters({ search: searchInput, page: 1 })
                 }}
               />
             </AutoComplete>
+
+            {/* Stock Status Filter */}
+            <Select
+              style={{ width: 180 }}
+              value={stockStatus}
+              onChange={(val) => {
+                updateFilters({ stock_status: val, page: 1 })
+              }}
+              options={[
+                { label: 'All Stock Statuses', value: 'all' },
+                { label: 'In Stock (Stocked)', value: 'in_stock' },
+                { label: 'Out of Stock (0 units)', value: 'out_of_stock' },
+                { label: 'Low Stock (Replenish)', value: 'low_stock' },
+              ]}
+            />
 
             {/* Main Category */}
             <Select
@@ -405,9 +782,7 @@ export const ProductListPage: React.FC = () => {
               style={{ width: 190 }}
               value={mainCategoryId}
               onChange={(val) => {
-                setMainCategoryId(val)
-                setSubcategoryId(undefined)
-                setPage(1)
+                updateFilters({ category_id: val, subcategory_id: undefined, page: 1 })
               }}
               optionFilterProp="label"
               filterOption={(input, option) =>
@@ -424,8 +799,7 @@ export const ProductListPage: React.FC = () => {
               style={{ width: 190 }}
               value={subcategoryId}
               onChange={(val) => {
-                setSubcategoryId(val)
-                setPage(1)
+                updateFilters({ subcategory_id: val, page: 1 })
               }}
               optionFilterProp="label"
               filterOption={(input, option) =>
@@ -442,8 +816,7 @@ export const ProductListPage: React.FC = () => {
               style={{ width: 170 }}
               value={brandId}
               onChange={(val) => {
-                setBrandId(val)
-                setPage(1)
+                updateFilters({ brand_id: val, page: 1 })
               }}
               optionFilterProp="label"
               filterOption={(input, option) =>
@@ -453,17 +826,20 @@ export const ProductListPage: React.FC = () => {
             />
 
             {/* Reset Filters button if any filter active */}
-            {(searchInput || mainCategoryId || subcategoryId || brandId) && (
+            {(searchInput || mainCategoryId || subcategoryId || brandId || stockStatus !== 'all') && (
               <Button
                 type="link"
                 size="small"
                 onClick={() => {
-                  setSearchInput('')
-                  setSearch('')
-                  setMainCategoryId(undefined)
-                  setSubcategoryId(undefined)
-                  setBrandId(undefined)
-                  setPage(1)
+                  clearStoredFilters()
+                  updateFilters({
+                    search: '',
+                    category_id: undefined,
+                    subcategory_id: undefined,
+                    brand_id: undefined,
+                    stock_status: 'all',
+                    page: 1,
+                  })
                 }}
                 style={{ padding: 0 }}
               >
@@ -513,8 +889,7 @@ export const ProductListPage: React.FC = () => {
             total: productData?.pagination?.total_items || 0,
             showSizeChanger: true,
             onChange: (p, ps) => {
-              setPage(p)
-              setPageSize(ps)
+              updateFilters({ page: p, pageSize: ps })
             },
           }}
         />

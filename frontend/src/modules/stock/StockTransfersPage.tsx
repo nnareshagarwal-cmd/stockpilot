@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import {
   Card,
   Table,
@@ -29,17 +30,25 @@ import { ThinStatCard } from '../../components/common/ThinStatCard'
 const { Title, Text } = Typography
 
 export const StockTransfersPage: React.FC = () => {
+  const [searchParams, setSearchParams] = useSearchParams()
+  const initialStatus = searchParams.get('status') || undefined
+
   const [loading, setLoading] = useState(false)
   const [transfers, setTransfers] = useState<StockTransfer[]>([])
   const [totalItems, setTotalItems] = useState(0)
   const [page, setPage] = useState(1)
   const [pageSize, setPageSize] = useState(20)
-  const [statusFilter, setStatusFilter] = useState<string | undefined>()
+  const [statusFilter, setStatusFilter] = useState<string | undefined>(initialStatus)
 
   const [detailModalOpen, setDetailModalOpen] = useState(false)
   const [receiveModalOpen, setReceiveModalOpen] = useState(false)
   const [selectedTransfer, setSelectedTransfer] = useState<StockTransfer | null>(null)
   const [receiveForm] = Form.useForm()
+
+  useEffect(() => {
+    const s = searchParams.get('status') || undefined
+    setStatusFilter(s)
+  }, [searchParams])
 
   const fetchTransfers = async () => {
     setLoading(true)
@@ -216,27 +225,47 @@ export const StockTransfersPage: React.FC = () => {
             label="Total Transfers"
             value={totalItems}
             accentColor="#2563eb"
+            selected={!statusFilter}
+            onClick={() => {
+              setStatusFilter(undefined)
+              setPage(1)
+            }}
           />
         </Col>
         <Col xs={12} sm={6}>
           <ThinStatCard
             label="In Transit (Dispatched)"
-            value={transfers.filter((t) => t.status === 'DISPATCHED').length}
+            value={statusFilter === 'DISPATCHED' ? totalItems : transfers.filter((t) => t.status === 'DISPATCHED').length}
             accentColor="#ea580c"
+            selected={statusFilter === 'DISPATCHED'}
+            onClick={() => {
+              setStatusFilter('DISPATCHED')
+              setPage(1)
+            }}
           />
         </Col>
         <Col xs={12} sm={6}>
           <ThinStatCard
             label="Completed (Received)"
-            value={transfers.filter((t) => t.status === 'RECEIVED').length}
+            value={statusFilter === 'RECEIVED' ? totalItems : transfers.filter((t) => t.status === 'RECEIVED').length}
             accentColor="#16a34a"
+            selected={statusFilter === 'RECEIVED'}
+            onClick={() => {
+              setStatusFilter('RECEIVED')
+              setPage(1)
+            }}
           />
         </Col>
         <Col xs={12} sm={6}>
           <ThinStatCard
             label="Draft Orders"
-            value={transfers.filter((t) => t.status === 'DRAFT').length}
+            value={statusFilter === 'DRAFT' ? totalItems : transfers.filter((t) => t.status === 'DRAFT').length}
             accentColor="#8b5cf6"
+            selected={statusFilter === 'DRAFT'}
+            onClick={() => {
+              setStatusFilter('DRAFT')
+              setPage(1)
+            }}
           />
         </Col>
       </Row>

@@ -1,6 +1,7 @@
-import React, { useState } from 'react'
+import React, { useState, useEffect } from 'react'
 import { Layout, Menu, Button, Dropdown, Avatar, Space, Typography, Input, theme } from 'antd'
 import {
+  DashboardOutlined,
   HomeOutlined,
   AppstoreOutlined,
   TagsOutlined,
@@ -23,6 +24,7 @@ import {
   ClockCircleOutlined,
   ApartmentOutlined,
   DatabaseOutlined,
+  ShoppingCartOutlined,
 } from '@ant-design/icons'
 import { useNavigate, useLocation, Outlet } from 'react-router-dom'
 import { useAuth } from '../auth/AuthContext'
@@ -38,9 +40,33 @@ export const MainLayout: React.FC = () => {
   const location = useLocation()
   const { token } = theme.useToken()
 
+  const getSubMenuKey = (pathname: string): string | null => {
+    if (pathname.startsWith('/stock')) return 'inventory-sub'
+    if (
+      pathname.startsWith('/settings/lookups') ||
+      pathname.startsWith('/settings/business') ||
+      pathname.startsWith('/settings/users')
+    ) {
+      return 'settings-sub'
+    }
+    return null
+  }
+
+  const [openKeys, setOpenKeys] = useState<string[]>(() => {
+    const parentSub = getSubMenuKey(location.pathname)
+    return parentSub ? [parentSub] : ['inventory-sub']
+  })
+
+  useEffect(() => {
+    const parentSub = getSubMenuKey(location.pathname)
+    if (parentSub && !openKeys.includes(parentSub)) {
+      setOpenKeys((prev) => [...prev, parentSub])
+    }
+  }, [location.pathname])
+
   const handleGlobalSearch = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === 'Enter' && searchQuery.trim()) {
-      navigate(`/?q=${encodeURIComponent(searchQuery.trim())}`)
+      navigate(`/home-search?q=${encodeURIComponent(searchQuery.trim())}`)
     }
   }
 
@@ -69,6 +95,11 @@ export const MainLayout: React.FC = () => {
   const menuItems = [
     {
       key: '/',
+      icon: <DashboardOutlined />,
+      label: 'Dashboard',
+    },
+    {
+      key: '/home-search',
       icon: <HomeOutlined />,
       label: 'Home & Search',
     },
@@ -78,19 +109,19 @@ export const MainLayout: React.FC = () => {
       label: 'Products',
     },
     {
+      key: '/supplier-orders',
+      icon: <ShoppingCartOutlined />,
+      label: 'Supplier Orders (Crystal)',
+    },
+    {
       key: 'inventory-sub',
       icon: <InboxOutlined />,
       label: 'Inventory & Stock',
       children: [
         {
-          key: '/stock/mapping',
+          key: '/stock/maintenance',
           icon: <ApartmentOutlined />,
-          label: 'Stock Mapping',
-        },
-        {
-          key: '/stock/balances',
-          icon: <AppstoreOutlined />,
-          label: 'Stock Balances',
+          label: 'Stock Maintenance',
         },
         {
           key: '/stock/transfers',
@@ -212,10 +243,18 @@ export const MainLayout: React.FC = () => {
 
         <Menu
           mode="inline"
-          selectedKeys={[location.pathname]}
+          selectedKeys={[
+            location.pathname === '/stock/mapping' || location.pathname === '/stock/balances'
+              ? '/stock/maintenance'
+              : location.pathname === '/dashboard'
+              ? '/'
+              : location.pathname,
+          ]}
+          openKeys={collapsed ? undefined : openKeys}
+          onOpenChange={(keys) => setOpenKeys(keys)}
           items={menuItems}
           onClick={({ key }) => {
-            if (key !== 'settings-sub') navigate(key)
+            if (key.startsWith('/')) navigate(key)
           }}
           style={{ borderRight: 0, paddingTop: '12px' }}
         />
@@ -243,15 +282,17 @@ export const MainLayout: React.FC = () => {
               onClick={() => setCollapsed(!collapsed)}
               style={{ fontSize: '16px', width: 40, height: 40 }}
             />
-            <Input
-              prefix={<SearchOutlined style={{ color: '#94a3b8' }} />}
-              placeholder="Search products, SKUs, specifications (e.g. 18W, Sofa)..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              onKeyDown={handleGlobalSearch}
-              style={{ width: '360px', borderRadius: '8px', background: '#f8fafc' }}
-              allowClear
-            />
+            {location.pathname !== '/home-search' && (
+              <Input
+                prefix={<SearchOutlined style={{ color: '#94a3b8' }} />}
+                placeholder="Search products, SKUs, specifications (e.g. 18W, Sofa)..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                onKeyDown={handleGlobalSearch}
+                style={{ width: '360px', borderRadius: '8px', background: '#f8fafc' }}
+                allowClear
+              />
+            )}
           </Space>
 
           <Space direction="horizontal" size={16}>

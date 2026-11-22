@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useRef } from 'react'
 import {
   Card,
   Table,
@@ -49,18 +49,32 @@ export const StockAgeingPage: React.FC = () => {
       const data = await stockApi.getReconciliation()
       setReconciliation(data)
       if (data.is_balanced) {
-        message.success(`Reconciliation verified! All ${data.total_checked} stock balance records match the movement ledger 100%.`)
+        message.success({
+          content: `Reconciliation verified! All ${data.total_checked} stock balance records match the movement ledger 100%.`,
+          key: 'reconciliation-status-toast',
+        })
       } else {
-        message.warning(`Found ${data.mismatches.length} balance discrepancies!`)
+        message.warning({
+          content: `Found ${data.mismatches.length} balance discrepancies!`,
+          key: 'reconciliation-status-toast',
+        })
       }
     } catch (e) {
-      message.error('Reconciliation check failed')
+      message.error({
+        content: 'Reconciliation check failed',
+        key: 'reconciliation-status-toast',
+      })
     } finally {
       setCheckingRecon(false)
     }
   }
 
+  const hasInitialized = useRef(false)
+
   useEffect(() => {
+    if (hasInitialized.current) return
+    hasInitialized.current = true
+
     fetchAgeing()
     runReconciliation()
   }, [])
@@ -213,21 +227,23 @@ export const StockAgeingPage: React.FC = () => {
         <Col xs={12} sm={6}>
           <ThinStatCard
             label="Total Physical Units"
-            value={ageing?.total_quantity || 0}
+            value={Number(ageing?.total_quantity || 0).toLocaleString()}
             accentColor="#2563eb"
           />
         </Col>
         <Col xs={12} sm={6}>
           <ThinStatCard
             label="Fresh Stock (0–30 Days)"
-            value={ageing?.bands['0-30 days'] || 0}
+            value={Number(ageing?.bands['0-30 days'] || 0).toLocaleString()}
             accentColor="#16a34a"
           />
         </Col>
         <Col xs={12} sm={6}>
           <ThinStatCard
             label="Slow Moving (91+ Days)"
-            value={(Number(ageing?.bands['91-180 days'] || 0) + Number(ageing?.bands['180+ days'] || 0))}
+            value={Number(
+              Number(ageing?.bands['91-180 days'] || 0) + Number(ageing?.bands['180+ days'] || 0)
+            ).toLocaleString()}
             accentColor="#ea580c"
           />
         </Col>

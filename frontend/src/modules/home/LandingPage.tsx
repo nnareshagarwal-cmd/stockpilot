@@ -10,23 +10,17 @@ import {
   Empty,
   Spin,
   Space,
-  Popover,
-  Button,
 } from 'antd'
 import {
   SearchOutlined,
   AppstoreOutlined,
-  BlockOutlined,
-  TagsOutlined,
   EnvironmentOutlined,
   EyeOutlined,
-  CloseCircleOutlined,
-  InboxOutlined,
 } from '@ant-design/icons'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import apiClient from '../../api/client'
-import { ProductSearchItem, ApiResponse, PaginatedResponse } from '../../api/types'
+import { ProductSearchItem, PaginatedResponse } from '../../api/types'
 
 const { Title, Text, Paragraph } = Typography
 
@@ -42,39 +36,19 @@ export const LandingPage: React.FC = () => {
     }
   }, [initialQuery])
 
+  const isFiltered = Boolean(searchTerm.trim())
+
   // Fetch search results (up to 50 items for responsive catalogue discovery)
+  // When no search term is entered, show only in-stock products for Catalogue Highlights.
+  // When user types a search term, search across ALL products (in-stock or catalog).
   const { data: searchResults, isLoading } = useQuery({
     queryKey: ['products-search', searchTerm],
     queryFn: async () => {
-      const res = await apiClient.get<PaginatedResponse<ProductSearchItem>>(
-        `/products/search?q=${encodeURIComponent(searchTerm)}&page=1&page_size=50`
-      )
+      const url = isFiltered
+        ? `/products/search?q=${encodeURIComponent(searchTerm.trim())}&page=1&page_size=50`
+        : `/products/search?in_stock=true&page=1&page_size=50`
+      const res = await apiClient.get<PaginatedResponse<ProductSearchItem>>(url)
       return res.data
-    },
-  })
-
-  // Quick statistics queries for unfiltered baseline counts
-  const { data: categoriesData } = useQuery({
-    queryKey: ['categories-count'],
-    queryFn: async () => {
-      const res = await apiClient.get<ApiResponse<any[]>>('/categories')
-      return res.data.data
-    },
-  })
-
-  const { data: brandsData } = useQuery({
-    queryKey: ['brands-count'],
-    queryFn: async () => {
-      const res = await apiClient.get<ApiResponse<any[]>>('/brands')
-      return res.data.data
-    },
-  })
-
-  const { data: locationsData } = useQuery({
-    queryKey: ['locations-count'],
-    queryFn: async () => {
-      const res = await apiClient.get<ApiResponse<any[]>>('/locations')
-      return res.data.data
     },
   })
 
@@ -112,37 +86,9 @@ export const LandingPage: React.FC = () => {
     navigate(`/products/${item.id}`)
   }
 
-  // Dynamic calculations based on user's active search query
-  const isFiltered = Boolean(searchTerm.trim())
   const matchedProducts = searchResults?.data || []
-
-  const totalItemsCount = isFiltered
-    ? (searchResults?.pagination?.total_items ?? matchedProducts.length)
-    : (searchResults?.pagination?.total_items ?? 0)
-
-  const distinctCategories = isFiltered
-    ? (Array.from(new Set(matchedProducts.map((p) => p.category).filter(Boolean))) as string[])
-    : []
-  const categoriesCount = isFiltered ? distinctCategories.length : (categoriesData?.length ?? 0)
-
-  const distinctBrands = isFiltered
-    ? (Array.from(new Set(matchedProducts.map((p) => p.brand).filter(Boolean))) as string[])
-    : []
-  const brandsCount = isFiltered ? distinctBrands.length : (brandsData?.length ?? 0)
-
-const cleanLocationName = (loc?: string) => (loc ? loc.replace(/\s*\[.*?\]\s*/g, '').trim() : '')
-
-  const distinctLocations = isFiltered
-    ? (Array.from(
-        new Set(
-          matchedProducts
-            .flatMap((p) => p.locations || [])
-            .map(cleanLocationName)
-            .filter(Boolean)
-        )
-      ) as string[])
-    : []
-  const locationsCount = isFiltered ? distinctLocations.length : (locationsData?.length ?? 0)
+  const totalItemsCount = searchResults?.pagination?.total_items ?? matchedProducts.length
+  const cleanLocationName = (loc?: string) => (loc ? loc.replace(/\s*\[.*?\]\s*/g, '').trim() : '')
 
   // AutoComplete dropdown options
   const searchOptions = matchedProducts.map((item) => ({
@@ -242,11 +188,16 @@ const cleanLocationName = (loc?: string) => (loc ? loc.replace(/\s*\[.*?\]\s*/g,
           <div style={{ fontWeight: 700, fontSize: '14px', color: '#1677ff' }}>
             ₹{Number(item.selling_price || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
           </div>
-          {item.mrp && Number(item.mrp) > Number(item.selling_price) && (
+          {Boolean(item.mrp) && Number(item.mrp) > Number(item.selling_price) ? (
             <div style={{ fontSize: '11px', color: '#94a3b8', textDecoration: 'line-through' }}>
               ₹{Number(item.mrp).toLocaleString('en-IN')}
             </div>
-          )}
+          ) : null}
+          {Number(item.total_stock) > 0 ? (
+            <Tag color="green" style={{ margin: '4px 0 0 0', fontSize: '11px', lineHeight: '18px' }}>
+              {item.total_stock} in stock
+            </Tag>
+          ) : null}
         </div>
       </div>
     ),
@@ -321,294 +272,6 @@ const cleanLocationName = (loc?: string) => (loc ? loc.replace(/\s*\[.*?\]\s*/g,
         </div>
       </div>
 
-      {/* Sleek Compact Dynamic Metric Strip (Replaces bulky cards, saving ~70% vertical screen space) */}
-      <div
-        style={{
-          background: '#ffffff',
-          borderRadius: '14px',
-          border: isFiltered ? '1px solid #bfdbfe' : '1px solid #e2e8f0',
-          padding: '10px 20px',
-          marginBottom: '24px',
-          boxShadow: isFiltered
-            ? '0 4px 14px rgba(22, 119, 255, 0.08)'
-            : '0 2px 4px rgba(0, 0, 0, 0.02)',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          flexWrap: 'wrap',
-          gap: '12px',
-          transition: 'all 0.25s ease',
-        }}
-      >
-        <div style={{ display: 'flex', alignItems: 'center', gap: '24px', flexWrap: 'wrap' }}>
-          {/* Items Metric */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-            <div
-              style={{
-                width: '32px',
-                height: '32px',
-                borderRadius: '8px',
-                background: '#eff6ff',
-                color: '#1677ff',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                fontSize: '16px',
-              }}
-            >
-              <AppstoreOutlined />
-            </div>
-            <div>
-              <Text type="secondary" style={{ fontSize: '11px', display: 'block', lineHeight: 1.1 }}>
-                {isFiltered ? 'Matched Items' : 'Total Items'}
-              </Text>
-              <Text strong style={{ fontSize: '16px', color: '#0f172a' }}>
-                {totalItemsCount}
-              </Text>
-            </div>
-          </div>
-
-          <div style={{ width: '1px', height: '26px', background: '#e2e8f0' }} />
-
-          {/* Categories Metric */}
-          <Popover
-            title={<span style={{ fontWeight: 600 }}>Matched Categories ({categoriesCount})</span>}
-            content={
-              <div style={{ maxWidth: '300px' }}>
-                {distinctCategories.length > 0 ? (
-                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
-                    {distinctCategories.map((c) => (
-                      <Tag key={c} color="blue">{c}</Tag>
-                    ))}
-                  </div>
-                ) : (
-                  <Text type="secondary">All {categoriesData?.length ?? 0} product categories active</Text>
-                )}
-              </div>
-            }
-          >
-            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer' }}>
-              <div
-                style={{
-                  width: '32px',
-                  height: '32px',
-                  borderRadius: '8px',
-                  background: '#f0fdf4',
-                  color: '#16a34a',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  fontSize: '16px',
-                }}
-              >
-                <BlockOutlined />
-              </div>
-              <div>
-                <Text type="secondary" style={{ fontSize: '11px', display: 'block', lineHeight: 1.1 }}>
-                  Categories
-                </Text>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                  <Text strong style={{ fontSize: '16px', color: '#0f172a' }}>
-                    {categoriesCount}
-                  </Text>
-                  {isFiltered && distinctCategories.length === 1 && (
-                    <Tag color="green" style={{ margin: 0, fontSize: '11px', lineHeight: '18px' }}>
-                      {distinctCategories[0]}
-                    </Tag>
-                  )}
-                </div>
-              </div>
-            </div>
-          </Popover>
-
-          <div style={{ width: '1px', height: '26px', background: '#e2e8f0' }} />
-
-          {/* Brands Metric */}
-          <Popover
-            title={<span style={{ fontWeight: 600 }}>Matched Brands ({brandsCount})</span>}
-            content={
-              <div style={{ maxWidth: '300px' }}>
-                {distinctBrands.length > 0 ? (
-                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
-                    {distinctBrands.map((b) => (
-                      <Tag key={b} color="purple">{b}</Tag>
-                    ))}
-                  </div>
-                ) : (
-                  <Text type="secondary">All {brandsData?.length ?? 0} brands available</Text>
-                )}
-              </div>
-            }
-          >
-            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer' }}>
-              <div
-                style={{
-                  width: '32px',
-                  height: '32px',
-                  borderRadius: '8px',
-                  background: '#faf5ff',
-                  color: '#9333ea',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  fontSize: '16px',
-                }}
-              >
-                <TagsOutlined />
-              </div>
-              <div>
-                <Text type="secondary" style={{ fontSize: '11px', display: 'block', lineHeight: 1.1 }}>
-                  Brands
-                </Text>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                  <Text strong style={{ fontSize: '16px', color: '#0f172a' }}>
-                    {brandsCount}
-                  </Text>
-                  {isFiltered && distinctBrands.length === 1 && (
-                    <Tag color="purple" style={{ margin: 0, fontSize: '11px', lineHeight: '18px' }}>
-                      {distinctBrands[0]}
-                    </Tag>
-                  )}
-                </div>
-              </div>
-            </div>
-          </Popover>
-
-          <div style={{ width: '1px', height: '26px', background: '#e2e8f0' }} />
-
-          {/* Locations Metric */}
-          <Popover
-            title={
-              <div style={{ fontWeight: 600 }}>
-                📍 {isFiltered ? `Stocked Locations (${locationsCount})` : 'All Warehouse & Store Locations'}
-              </div>
-            }
-            content={
-              <div style={{ maxWidth: '340px' }}>
-                {isFiltered ? (
-                  distinctLocations.length > 0 ? (
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                      {distinctLocations.map((loc) => (
-                        <div
-                          key={loc}
-                          style={{
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: '8px',
-                            background: '#fff7ed',
-                            padding: '6px 10px',
-                            borderRadius: '6px',
-                            border: '1px solid #fed7aa',
-                            fontSize: '12px',
-                            color: '#c2410c',
-                            fontWeight: 500,
-                          }}
-                        >
-                          <EnvironmentOutlined />
-                          <span>{loc}</span>
-                        </div>
-                      ))}
-                    </div>
-                  ) : (
-                    <Text type="secondary">No specific location assigned</Text>
-                  )
-                ) : (
-                  <Text type="secondary">
-                    Total of {locationsData?.length ?? 0} store floors and warehouse godowns
-                  </Text>
-                )}
-              </div>
-            }
-          >
-            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer' }}>
-              <div
-                style={{
-                  width: '32px',
-                  height: '32px',
-                  borderRadius: '8px',
-                  background: '#fff7ed',
-                  color: '#ea580c',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  fontSize: '16px',
-                }}
-              >
-                <EnvironmentOutlined />
-              </div>
-              <div>
-                <Text type="secondary" style={{ fontSize: '11px', display: 'block', lineHeight: 1.1 }}>
-                  Locations
-                </Text>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                  <Text strong style={{ fontSize: '16px', color: '#0f172a' }}>
-                    {locationsCount}
-                  </Text>
-                  {isFiltered && distinctLocations.length > 0 && (
-                    <Tag color="orange" style={{ margin: 0, fontSize: '11px', lineHeight: '18px' }}>
-                      {distinctLocations.length === 1
-                        ? distinctLocations[0]
-                        : `${distinctLocations.length} locations`}
-                    </Tag>
-                  )}
-                </div>
-              </div>
-            </div>
-          </Popover>
-
-          <div style={{ width: '1px', height: '26px', background: '#e2e8f0' }} />
-
-          {/* Live Stock Navigation Pill */}
-          <div
-            onClick={() => navigate('/stock/balances')}
-            style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}
-          >
-            <div
-              style={{
-                width: '32px',
-                height: '32px',
-                borderRadius: '8px',
-                background: '#ecfdf5',
-                color: '#059669',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                fontSize: '15px',
-              }}
-            >
-              <InboxOutlined />
-            </div>
-            <div>
-              <Text type="secondary" style={{ fontSize: '11px', display: 'block', lineHeight: 1.1 }}>
-                Live Inventory
-              </Text>
-              <Text strong style={{ fontSize: '13px', color: '#059669' }}>
-                Stock & Transfers →
-              </Text>
-            </div>
-          </div>
-        </div>
-
-        {/* Filter State / Clear Action */}
-        {isFiltered && (
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <Tag color="blue" style={{ margin: 0, borderRadius: '12px', padding: '2px 10px' }}>
-              Filtered: "{searchTerm}"
-            </Tag>
-            <Button
-              size="small"
-              type="text"
-              danger
-              icon={<CloseCircleOutlined />}
-              onClick={() => onSearchChange('')}
-              style={{ fontSize: '12px', fontWeight: 500 }}
-            >
-              Reset
-            </Button>
-          </div>
-        )}
-      </div>
-
       {/* Search Results Grid */}
       <div style={{ marginBottom: '32px' }}>
         <div
@@ -619,11 +282,18 @@ const cleanLocationName = (loc?: string) => (loc ? loc.replace(/\s*\[.*?\]\s*/g,
             marginBottom: '16px',
           }}
         >
-          <Title level={4} style={{ margin: 0 }}>
-            {searchTerm ? `Results for "${searchTerm}"` : 'Catalogue Highlights'}
-          </Title>
+          <div>
+            <Title level={4} style={{ margin: 0 }}>
+              {isFiltered ? `Results for "${searchTerm}"` : 'Catalogue Highlights'}
+            </Title>
+            {!isFiltered && (
+              <Text type="secondary" style={{ fontSize: '13px' }}>
+                Showing available in-stock inventory across stores and godowns
+              </Text>
+            )}
+          </div>
           <Text type="secondary">
-            {totalItemsCount} product{totalItemsCount === 1 ? '' : 's'} found
+            {totalItemsCount} product{totalItemsCount === 1 ? '' : 's'} {isFiltered ? 'found' : 'in stock'}
           </Text>
         </div>
 
@@ -710,14 +380,34 @@ const cleanLocationName = (loc?: string) => (loc ? loc.replace(/\s*\[.*?\]\s*/g,
                       SKU: <b>{item.default_sku || 'N/A'}</b>
                     </Text>
 
-                    <div style={{ marginTop: '8px', display: 'flex', alignItems: 'baseline', gap: '8px' }}>
-                      <Text strong style={{ fontSize: '17px', color: '#1677ff' }}>
-                        ₹{Number(item.selling_price || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-                      </Text>
-                      {item.mrp && Number(item.mrp) > Number(item.selling_price) && (
-                        <Text delete type="secondary" style={{ fontSize: '12px' }}>
-                          ₹{Number(item.mrp).toLocaleString('en-IN')}
+                    <div
+                      style={{
+                        marginTop: '8px',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        flexWrap: 'wrap',
+                        gap: '6px',
+                      }}
+                    >
+                      <div style={{ display: 'flex', alignItems: 'baseline', gap: '8px' }}>
+                        <Text strong style={{ fontSize: '17px', color: '#1677ff' }}>
+                          ₹{Number(item.selling_price || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
                         </Text>
+                        {Boolean(item.mrp) && Number(item.mrp) > Number(item.selling_price) ? (
+                          <Text delete type="secondary" style={{ fontSize: '12px' }}>
+                            ₹{Number(item.mrp).toLocaleString('en-IN')}
+                          </Text>
+                        ) : null}
+                      </div>
+                      {Number(item.total_stock) > 0 ? (
+                        <Tag color="green" style={{ margin: 0, borderRadius: '4px', fontWeight: 600 }}>
+                          {item.total_stock} in stock
+                        </Tag>
+                      ) : (
+                        <Tag color="default" style={{ margin: 0, borderRadius: '4px' }}>
+                          0 stock
+                        </Tag>
                       )}
                     </div>
                   </Space>

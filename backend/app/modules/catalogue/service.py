@@ -2,11 +2,12 @@ import csv
 import io
 import uuid
 import re
+from collections import defaultdict
 from decimal import Decimal
 from typing import List, Optional, Tuple, Dict, Any
 from fastapi import UploadFile
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func, or_, and_, delete
+from sqlalchemy import select, func, or_, and_, delete, case
 from sqlalchemy.orm import selectinload
 
 from app.common.exceptions import (
@@ -23,7 +24,10 @@ from app.modules.settings.models import (
     TaxRate,
     AttributeDefinition,
     AttributeOption,
+    Location,
+    StockCondition,
 )
+from app.modules.stock.models import StockBalance
 from app.modules.catalogue.models import (
     Product,
     ProductVariant,
@@ -545,6 +549,8 @@ async def search_products(
     subcategory_id: Optional[uuid.UUID] = None,
     brand_id: Optional[uuid.UUID] = None,
     is_active: Optional[bool] = True,
+    in_stock: Optional[bool] = None,
+    low_stock: Optional[bool] = None,
     page: int = 1,
     page_size: int = 20,
     sort_by: str = "name",
@@ -573,6 +579,58 @@ async def search_products(
         query = query.where(Product.subcategory_id == subcategory_id)
     if brand_id is not None:
         query = query.where(Product.brand_id == brand_id)
+
+    if in_stock is True:
+        sellable_stock_subq = (
+            select(ProductVariant.product_id)
+            .join(StockBalance, StockBalance.variant_id == ProductVariant.id)
+            .join(StockCondition, StockBalance.condition_id == StockCondition.id)
+            .where(
+                StockBalance.tenant_id == tenant_id,
+                StockCondition.is_sellable == True,
+                (StockBalance.quantity - StockBalance.reserved_quantity) > Decimal("0.000"),
+            )
+            .group_by(ProductVariant.product_id)
+        )
+        query = query.where(Product.id.in_(sellable_stock_subq))
+    elif in_stock is False:
+        sellable_stock_subq = (
+            select(ProductVariant.product_id)
+            .join(StockBalance, StockBalance.variant_id == ProductVariant.id)
+            .join(StockCondition, StockBalance.condition_id == StockCondition.id)
+            .where(
+                StockBalance.tenant_id == tenant_id,
+                StockCondition.is_sellable == True,
+                (StockBalance.quantity - StockBalance.reserved_quantity) > Decimal("0.000"),
+            )
+            .group_by(ProductVariant.product_id)
+        )
+        query = query.where(~Product.id.in_(sellable_stock_subq))
+
+    if low_stock is True:
+        low_stock_subq = (
+            select(ProductVariant.product_id)
+            .outerjoin(StockBalance, StockBalance.variant_id == ProductVariant.id)
+            .outerjoin(StockCondition, StockBalance.condition_id == StockCondition.id)
+            .where(
+                ProductVariant.tenant_id == tenant_id,
+                ProductVariant.is_active == True,
+                ProductVariant.reorder_point > 0,
+            )
+            .group_by(ProductVariant.id, ProductVariant.product_id, ProductVariant.reorder_point)
+            .having(
+                func.coalesce(
+                    func.sum(
+                        case(
+                            (StockCondition.is_sellable == True, StockBalance.quantity - StockBalance.reserved_quantity),
+                            else_=Decimal("0.000"),
+                        )
+                    ),
+                    Decimal("0.000"),
+                ) <= ProductVariant.reorder_point
+            )
+        )
+        query = query.where(Product.id.in_(low_stock_subq))
 
     if q and q.strip():
         search_term = q.strip()
@@ -668,6 +726,24 @@ async def search_products(
     products = result.scalars().all()
 
     items: List[ProductSearchItem] = []
+    all_variant_ids = [v.id for p in products for v in p.variants]
+    stock_by_variant: Dict[uuid.UUID, Decimal] = {}
+    location_names_by_variant: Dict[uuid.UUID, set] = defaultdict(set)
+    if all_variant_ids:
+        sb_res = await db.execute(
+            select(StockBalance.variant_id, StockBalance.quantity, Location.name)
+            .join(Location, Location.id == StockBalance.location_id)
+            .where(
+                StockBalance.tenant_id == tenant_id,
+                StockBalance.variant_id.in_(all_variant_ids),
+                StockBalance.quantity > 0,
+            )
+        )
+        for var_id, qty, loc_name in sb_res.all():
+            stock_by_variant[var_id] = stock_by_variant.get(var_id, Decimal("0")) + Decimal(str(qty))
+            if loc_name:
+                location_names_by_variant[var_id].add(loc_name)
+
     for p in products:
         # Default SKU and price from first variant
         first_v = p.variants[0] if p.variants else None
@@ -684,6 +760,14 @@ async def search_products(
             elif av.option and any(k in av.option.value.lower() for k in ('floor', 'godown', 'showroom', 'warehouse', 'store')):
                 loc_set.add(av.option.value)
 
+        # Real stock & stocked locations
+        prod_stock = sum(stock_by_variant.get(v.id, Decimal("0")) for v in p.variants)
+        real_locations = set()
+        for v in p.variants:
+            real_locations.update(location_names_by_variant.get(v.id, set()))
+        if not real_locations:
+            real_locations = loc_set
+
         items.append(
             ProductSearchItem(
                 id=p.id,
@@ -697,11 +781,14 @@ async def search_products(
                 model=p.model,
                 primary_image_url=primary_img.file_url if primary_img else None,
                 default_sku=first_v.sku if first_v else None,
+                cost_price=first_v.purchase_price if first_v else None,
+                purchase_price=first_v.purchase_price if first_v else None,
                 selling_price=first_v.selling_price if first_v else None,
                 mrp=first_v.mrp if first_v else None,
                 variant_count=len(p.variants),
                 is_active=p.is_active,
-                locations=sorted(list(loc_set)),
+                locations=sorted(list(real_locations)),
+                total_stock=prod_stock,
             )
         )
 
@@ -917,6 +1004,10 @@ async def commit_csv_import(
     units_res = await db.execute(select(UnitOfMeasure).where(UnitOfMeasure.tenant_id == tenant_id))
     units_by_code = {u.code.upper(): u.id for u in units_res.scalars().all()}
 
+    # Preload existing products in tenant to avoid duplicate products by name
+    prods_res = await db.execute(select(Product).where(Product.tenant_id == tenant_id, Product.is_active == True))
+    prods_by_name = {p.name.lower(): p for p in prods_res.scalars().all()}
+
     for idx, r in enumerate(rows, start=1):
         name = r.get("name")
         sku = r.get("sku")
@@ -949,17 +1040,29 @@ async def commit_csv_import(
         selling_price = Decimal(r.get("selling_price") or "0.00")
         mrp = Decimal(r.get("mrp")) if r.get("mrp") else None
 
-        product = Product(
-            tenant_id=tenant_id,
-            name=name,
-            description=r.get("description"),
-            category_id=cat_id,
-            brand_id=brand_id,
-            model=r.get("model"),
-            created_by=user_id,
-        )
-        db.add(product)
-        await db.flush()
+        product = prods_by_name.get(name.lower())
+        if not product:
+            product = Product(
+                tenant_id=tenant_id,
+                name=name,
+                description=r.get("description"),
+                category_id=cat_id,
+                brand_id=brand_id,
+                model=r.get("model"),
+                created_by=user_id,
+            )
+            db.add(product)
+            await db.flush()
+            prods_by_name[name.lower()] = product
+        else:
+            if cat_id and not product.category_id:
+                product.category_id = cat_id
+            if brand_id and not product.brand_id:
+                product.brand_id = brand_id
+            if r.get("description") and not product.description:
+                product.description = r.get("description")
+            if r.get("model") and not product.model:
+                product.model = r.get("model")
 
         variant = ProductVariant(
             tenant_id=tenant_id,

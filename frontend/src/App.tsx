@@ -3,6 +3,7 @@ import { Routes, Route, Navigate } from 'react-router-dom'
 import { LoginPage } from './auth/LoginPage'
 import { ProtectedRoute } from './auth/ProtectedRoute'
 import { MainLayout } from './layouts/MainLayout'
+import { DashboardPage } from './modules/dashboard/DashboardPage'
 import { LandingPage } from './modules/home/LandingPage'
 import { ProductListPage } from './modules/catalogue/pages/ProductListPage'
 import { ProductFormPage } from './modules/catalogue/pages/ProductFormPage'
@@ -18,11 +19,11 @@ import { AttributesPage } from './modules/settings/pages/AttributesPage'
 import { LookupMasterPage } from './modules/settings/pages/LookupMasterPage'
 import { BusinessProfilePage } from './modules/settings/pages/BusinessProfilePage'
 import { UsersPage } from './modules/settings/pages/UsersPage'
-import { StockBalancesPage } from './modules/stock/StockBalancesPage'
-import { StockMappingPage } from './modules/stock/StockMappingPage'
+import { StockMaintenancePage } from './modules/stock/StockMaintenancePage'
 import { StockTransfersPage } from './modules/stock/StockTransfersPage'
 import { StockMovementsPage } from './modules/stock/StockMovementsPage'
 import { StockAgeingPage } from './modules/stock/StockAgeingPage'
+import { SupplierOrdersPage } from './modules/procurement/SupplierOrdersPage'
 
 export const App: React.FC = () => {
   return (
@@ -37,16 +38,20 @@ export const App: React.FC = () => {
           </ProtectedRoute>
         }
       >
-        <Route index element={<LandingPage />} />
+        <Route index element={<DashboardPage />} />
+        <Route path="dashboard" element={<DashboardPage />} />
+        <Route path="home-search" element={<LandingPage />} />
         <Route path="products" element={<ProductListPage />} />
         <Route path="products/new" element={<ProductFormPage />} />
         <Route path="products/:id" element={<ProductDetailPage />} />
         <Route path="products/:id/edit" element={<ProductFormPage />} />
         <Route path="products/import" element={<CsvImportPage />} />
+        <Route path="supplier-orders" element={<SupplierOrdersPage />} />
 
-        {/* Inventory & Stock (Phase 2) */}
-        <Route path="stock/mapping" element={<StockMappingPage />} />
-        <Route path="stock/balances" element={<StockBalancesPage />} />
+        {/* Inventory & Stock */}
+        <Route path="stock/maintenance" element={<StockMaintenancePage />} />
+        <Route path="stock/mapping" element={<StockMaintenancePage />} />
+        <Route path="stock/balances" element={<StockMaintenancePage />} />
         <Route path="stock/transfers" element={<StockTransfersPage />} />
         <Route path="stock/movements" element={<StockMovementsPage />} />
         <Route path="stock/ageing" element={<StockAgeingPage />} />

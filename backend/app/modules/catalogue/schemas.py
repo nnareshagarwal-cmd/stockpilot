@@ -147,11 +147,14 @@ class ProductSearchItem(BaseModel):
     model: Optional[str] = None
     primary_image_url: Optional[str] = None
     default_sku: Optional[str] = None
+    cost_price: Optional[Decimal] = None
+    purchase_price: Optional[Decimal] = None
     selling_price: Optional[Decimal] = None
     mrp: Optional[Decimal] = None
     variant_count: int = 1
     is_active: bool = True
     locations: List[str] = []
+    total_stock: Decimal = Decimal("0")
 
 
 class ImageUpdate(BaseModel):

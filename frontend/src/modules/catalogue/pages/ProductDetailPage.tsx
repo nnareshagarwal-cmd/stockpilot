@@ -31,7 +31,7 @@ import {
   InboxOutlined,
   ApartmentOutlined,
 } from '@ant-design/icons'
-import { useParams, useNavigate } from 'react-router-dom'
+import { useParams, useNavigate, useLocation } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import apiClient from '../../../api/client'
 import { ApiResponse, ProductDetail } from '../../../api/types'
@@ -42,8 +42,20 @@ const { Title, Text, Paragraph } = Typography
 export const ProductDetailPage: React.FC = () => {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
+  const location = useLocation()
   const queryClient = useQueryClient()
   const [activeTab, setActiveTab] = useState('overview')
+
+  const handleBack = () => {
+    const returnSearch = (location.state as any)?.returnSearch
+    if (returnSearch !== undefined) {
+      navigate(`/products${returnSearch ? `?${returnSearch}` : ''}`)
+    } else if (window.history.length > 1) {
+      navigate(-1)
+    } else {
+      navigate('/products')
+    }
+  }
 
   const { data: product, isLoading, isError } = useQuery({
     queryKey: ['product-detail', id],
@@ -66,6 +78,8 @@ export const ProductDetailPage: React.FC = () => {
     },
     enabled: !!id && !!product,
   })
+
+  const activeStockBalances = (stockBalances || []).filter((b: any) => Number(b.quantity) > 0)
 
   // Set primary image mutation
   const setPrimaryMutation = useMutation({
@@ -119,7 +133,7 @@ export const ProductDetailPage: React.FC = () => {
     return (
       <Card style={{ textAlign: 'center', padding: '60px', borderRadius: '12px' }}>
         <Empty description="Product not found" />
-        <Button style={{ marginTop: '16px' }} onClick={() => navigate('/products')}>
+        <Button style={{ marginTop: '16px' }} onClick={handleBack}>
           Back to Products
         </Button>
       </Card>
@@ -273,7 +287,9 @@ export const ProductDetailPage: React.FC = () => {
         }}
       >
         <Space size={12}>
-          <Button icon={<ArrowLeftOutlined />} onClick={() => navigate('/products')} />
+          <Button icon={<ArrowLeftOutlined />} onClick={handleBack}>
+            Back to Products
+          </Button>
           <div>
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
               <Title level={3} style={{ margin: 0, fontWeight: 700 }}>
@@ -293,15 +309,9 @@ export const ProductDetailPage: React.FC = () => {
 
         <Space>
           <Button
-            icon={<ApartmentOutlined />}
-            onClick={() => navigate(`/stock/mapping?product_id=${product.id}`)}
-          >
-            Stock Mapping
-          </Button>
-          <Button
             type="primary"
             icon={<EditOutlined />}
-            onClick={() => navigate(`/products/${product.id}/edit`)}
+            onClick={() => navigate(`/products/${product.id}/edit`, { state: location.state })}
           >
             Edit Product
           </Button>
@@ -405,21 +415,48 @@ export const ProductDetailPage: React.FC = () => {
               label: (
                 <Space size={4}>
                   <InboxOutlined />
-                  <span>Stock by Location ({stockBalances?.length || 0})</span>
+                  <span>Stock by Location ({activeStockBalances.length})</span>
                 </Space>
               ),
-              children:
-                (stockBalances || []).length === 0 ? (
-                  <Empty description="No physical stock recorded for this product yet" />
-                ) : (
+              children: (
+                <div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+                    <Text type="secondary">
+                      Showing locations currently holding stock for this product.
+                    </Text>
+                    <Button
+                      type="primary"
+                      icon={<ApartmentOutlined />}
+                      onClick={() => navigate(`/stock/maintenance?product_id=${product.id}`)}
+                    >
+                      Manage Stock
+                    </Button>
+                  </div>
                   <Table
-                    loading={isStockLoading}
                     columns={stockColumns}
-                    dataSource={stockBalances || []}
+                    dataSource={activeStockBalances}
                     rowKey="id"
+                    loading={isStockLoading}
                     pagination={false}
+                    locale={{
+                      emptyText: (
+                        <Empty
+                          description="No stock currently allocated to any location."
+                          style={{ padding: '24px 0' }}
+                        >
+                          <Button
+                            type="primary"
+                            icon={<ApartmentOutlined />}
+                            onClick={() => navigate(`/stock/maintenance?product_id=${product.id}`)}
+                          >
+                            Allocate Stock at Location
+                          </Button>
+                        </Empty>
+                      ),
+                    }}
                   />
-                ),
+                </div>
+              ),
             },
             {
               key: 'specifications',
@@ -500,49 +537,6 @@ export const ProductDetailPage: React.FC = () => {
                       ))}
                     </Row>
                   )}
-                </div>
-              ),
-            },
-            {
-              key: 'stock',
-              label: 'Stock by Location',
-              children: (
-                <div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-                    <Text type="secondary">
-                      Showing locations currently holding stock for this product.
-                    </Text>
-                    <Button
-                      type="primary"
-                      icon={<ApartmentOutlined />}
-                      onClick={() => navigate(`/stock/mapping?product_id=${product.id}`)}
-                    >
-                      Manage Stock Mapping
-                    </Button>
-                  </div>
-                  <Table
-                    columns={stockColumns}
-                    dataSource={(stockBalances || []).filter((b: any) => Number(b.quantity) > 0)}
-                    rowKey="id"
-                    loading={isStockLoading}
-                    pagination={false}
-                    locale={{
-                      emptyText: (
-                        <Empty
-                          description="No stock currently allocated to any location."
-                          style={{ padding: '24px 0' }}
-                        >
-                          <Button
-                            type="primary"
-                            icon={<ApartmentOutlined />}
-                            onClick={() => navigate(`/stock/mapping?product_id=${product.id}`)}
-                          >
-                            Allocate Stock at Location
-                          </Button>
-                        </Empty>
-                      ),
-                    }}
-                  />
                 </div>
               ),
             },
