@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useMemo } from 'react'
 import {
   Card,
   Table,
@@ -53,22 +53,52 @@ export const cleanLocationName = (name: string): string => {
 }
 
 export interface AntdTreeDataNode {
-  title: string
+  title: React.ReactNode
+  titleText: string
   value: string
   key: string
   selectable: boolean
   children?: AntdTreeDataNode[]
 }
 
-export const mapLocationTreeToTreeData = (items: any[]): AntdTreeDataNode[] => {
+export const mapLocationTreeToTreeData = (items: any[], level: number = 0): AntdTreeDataNode[] => {
   if (!items || !Array.isArray(items)) return []
-  return items.map((it) => ({
-    title: cleanLocationName(it.name),
-    value: String(it.id),
-    key: String(it.id),
-    selectable: it.type !== 'BUILDING' && it.type !== 'WAREHOUSE',
-    children: it.children ? mapLocationTreeToTreeData(it.children) : undefined,
-  }))
+  return items.map((it) => {
+    const isParent = Boolean(it.children && it.children.length > 0)
+    const rawName = cleanLocationName(it.name)
+    return {
+      titleText: rawName,
+      title: (
+        <span
+          style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: 6,
+            whiteSpace: 'nowrap',
+          }}
+        >
+          {isParent ? (
+            <span style={{ fontSize: '13px' }}>🏢</span>
+          ) : (
+            <span style={{ color: '#0284c7', fontSize: '14px', lineHeight: 1, fontWeight: 700 }}>•</span>
+          )}
+          <span
+            style={{
+              fontWeight: isParent ? 600 : 400,
+              color: isParent ? '#0f172a' : '#334155',
+              whiteSpace: 'nowrap',
+            }}
+          >
+            {rawName}
+          </span>
+        </span>
+      ),
+      value: String(it.id),
+      key: String(it.id),
+      selectable: it.type !== 'BUILDING' && it.type !== 'WAREHOUSE',
+      children: it.children ? mapLocationTreeToTreeData(it.children, level + 1) : undefined,
+    }
+  })
 }
 
 export interface MaintainableStockRecord {
@@ -137,6 +167,25 @@ export const StockMaintenancePage: React.FC = () => {
   const [allocateModalOpen, setAllocateModalOpen] = useState(false)
   const [allocateLoading, setAllocateLoading] = useState(false)
   const [allocateForm] = Form.useForm()
+
+  // Form watches for Modal 1 (Dynamic Allocate / Add Mode)
+  const watchedAllocateVariantId = Form.useWatch('variant_id', allocateForm)
+  const watchedAllocateConditionId = Form.useWatch('condition_id', allocateForm)
+  const watchedAllocateLocationId = Form.useWatch('location_id', allocateForm)
+  const watchedAllocateQuantity = Form.useWatch('quantity', allocateForm)
+
+  const existingAllocateRecord = useMemo(() => {
+    if (!mappingData?.locations || !watchedAllocateLocationId || !watchedAllocateVariantId) return null
+    return mappingData.locations.find(
+      (loc) =>
+        loc.location_id === watchedAllocateLocationId &&
+        loc.variant_id === watchedAllocateVariantId &&
+        (!watchedAllocateConditionId || loc.condition_id === watchedAllocateConditionId)
+    )
+  }, [mappingData?.locations, watchedAllocateLocationId, watchedAllocateVariantId, watchedAllocateConditionId])
+
+  const existingAllocateStockQty = existingAllocateRecord ? Number(existingAllocateRecord.quantity || 0) : 0
+  const hasExistingAllocateStock = Boolean(watchedAllocateLocationId && existingAllocateStockQty > 0)
 
   // Modal 2: Transfer Modal (Unified)
   const [transferModalOpen, setTransferModalOpen] = useState(false)
@@ -394,7 +443,7 @@ export const StockMaintenancePage: React.FC = () => {
   }
 
   // --- MODAL 1: ALLOCATE (Tab 2 only) ---
-  const handleOpenAllocateModal = (locRecord?: StockMappingLocation, defaultMode: 'add' | 'set_total' = 'add') => {
+  const handleOpenAllocateModal = (locRecord?: StockMappingLocation) => {
     if (!mappingData) return
     allocateForm.resetFields()
 
@@ -403,7 +452,6 @@ export const StockMaintenancePage: React.FC = () => {
         variant_id: locRecord.variant_id,
         location_id: locRecord.location_id,
         condition_id: locRecord.condition_id,
-        mode: defaultMode,
         quantity: 1,
         notes: '',
       })
@@ -413,7 +461,7 @@ export const StockMaintenancePage: React.FC = () => {
       allocateForm.setFieldsValue({
         variant_id: defaultVariant,
         condition_id: defaultCondition,
-        mode: 'set_total',
+        location_id: undefined,
         quantity: 1,
         notes: '',
       })
@@ -427,17 +475,30 @@ export const StockMaintenancePage: React.FC = () => {
       const values = await allocateForm.validateFields()
       setAllocateLoading(true)
 
+      const existingRec = mappingData?.locations?.find(
+        (loc) =>
+          loc.location_id === values.location_id &&
+          loc.variant_id === values.variant_id &&
+          loc.condition_id === values.condition_id
+      )
+      const existingQty = existingRec ? Number(existingRec.quantity || 0) : 0
+      const mode: 'add' | 'set_total' = existingQty > 0 ? 'add' : 'set_total'
+
       const updated = await stockApi.allocateStock(selectedProductId, {
         variant_id: values.variant_id,
         location_id: values.location_id,
         condition_id: values.condition_id,
         quantity: Number(values.quantity),
-        mode: values.mode,
+        mode,
         notes: values.notes,
       })
 
       setMappingData(updated)
-      message.success('Stock allocated successfully!')
+      message.success(
+        mode === 'add'
+          ? `Added ${values.quantity} units to existing stock successfully!`
+          : `Initial stock of ${values.quantity} units set successfully!`
+      )
       setAllocateModalOpen(false)
       allocateForm.resetFields()
       fetchBalances()
@@ -890,9 +951,9 @@ export const StockMaintenancePage: React.FC = () => {
                 size="small"
                 type="dashed"
                 icon={<PlusOutlined />}
-                onClick={() => handleOpenAllocateModal(record, 'add')}
+                onClick={() => handleOpenAllocateModal(record)}
               >
-                + Add
+                Add
               </Button>
             </Tooltip>
           </Space>
@@ -1011,7 +1072,7 @@ export const StockMaintenancePage: React.FC = () => {
                       <TreeSelect
                         placeholder="All Locations"
                         allowClear
-                        style={{ width: 220 }}
+                        style={{ width: 240 }}
                         treeData={locationTree}
                         value={filterLocationId}
                         onChange={(val) => {
@@ -1020,8 +1081,18 @@ export const StockMaintenancePage: React.FC = () => {
                         }}
                         showSearch
                         treeDefaultExpandAll
-                        filterTreeNode={(search, item) =>
-                          (item?.title as string)?.toLowerCase().includes(search.toLowerCase())
+                        popupMatchSelectWidth={false}
+                        dropdownMatchSelectWidth={false}
+                        dropdownStyle={{
+                          minWidth: 340,
+                          maxWidth: 520,
+                          maxHeight: 400,
+                          overflowX: 'auto',
+                          whiteSpace: 'nowrap',
+                        }}
+                        treeNodeFilterProp="titleText"
+                        filterTreeNode={(search, item: any) =>
+                          (item?.titleText || '').toLowerCase().includes(search.toLowerCase().trim())
                         }
                       />
 
@@ -1126,12 +1197,15 @@ export const StockMaintenancePage: React.FC = () => {
                       </div>
                       <Select
                         showSearch
+                        allowClear
                         placeholder="Search product name, SKU, or model..."
-                        value={selectedProductId}
+                        value={undefined}
                         onSearch={handleProductSearch}
                         onChange={(val) => {
-                          setSelectedProductId(val)
-                          setSearchParams({ tab: 'product', product_id: val })
+                          if (val) {
+                            setSelectedProductId(val)
+                            setSearchParams({ tab: 'product', product_id: val })
+                          }
                         }}
                         filterOption={false}
                         loading={searchingProducts}
@@ -1142,7 +1216,7 @@ export const StockMaintenancePage: React.FC = () => {
                       />
                     </Col>
                     <Col xs={24} md={12}>
-                      {mappingData?.product && (
+                      {mappingData?.product ? (
                         <div
                           style={{
                             background: '#f8fafc',
@@ -1151,8 +1225,22 @@ export const StockMaintenancePage: React.FC = () => {
                             padding: '10px 14px',
                           }}
                         >
-                          <div style={{ fontSize: '12px', color: '#64748b', marginBottom: 2 }}>
-                            Selected Product Profile:
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 2 }}>
+                            <div style={{ fontSize: '12px', color: '#64748b' }}>
+                              Selected Product Profile:
+                            </div>
+                            <Button
+                              type="link"
+                              size="small"
+                              danger
+                              style={{ padding: 0, height: 'auto', fontSize: '12px' }}
+                              onClick={() => {
+                                setSelectedProductId(undefined)
+                                setSearchParams({ tab: 'product' })
+                              }}
+                            >
+                              Clear
+                            </Button>
                           </div>
                           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                             <div>
@@ -1172,6 +1260,20 @@ export const StockMaintenancePage: React.FC = () => {
                               {mappingData.product.variants.length} Variant(s)
                             </Tag>
                           </div>
+                        </div>
+                      ) : (
+                        <div
+                          style={{
+                            background: '#f8fafc',
+                            border: '1px dashed #cbd5e1',
+                            borderRadius: 6,
+                            padding: '12px 14px',
+                            color: '#64748b',
+                            fontSize: '13px',
+                            textAlign: 'center',
+                          }}
+                        >
+                          Search and select any product on the left to view and maintain stock locations
                         </div>
                       )}
                     </Col>
@@ -1239,7 +1341,7 @@ export const StockMaintenancePage: React.FC = () => {
                       <Button
                         type="primary"
                         icon={<PlusOutlined />}
-                        onClick={() => handleOpenAllocateModal(undefined, 'set_total')}
+                        onClick={() => handleOpenAllocateModal()}
                       >
                         + Allocate to Location
                       </Button>
@@ -1266,7 +1368,7 @@ export const StockMaintenancePage: React.FC = () => {
                             <Button
                               type="primary"
                               icon={<PlusOutlined />}
-                              onClick={() => handleOpenAllocateModal(undefined, 'set_total')}
+                              onClick={() => handleOpenAllocateModal()}
                             >
                               Allocate Stock to Location
                             </Button>
@@ -1296,9 +1398,9 @@ export const StockMaintenancePage: React.FC = () => {
         onOk={handleSaveAllocation}
         onCancel={() => setAllocateModalOpen(false)}
         confirmLoading={allocateLoading}
-        okText="Save Stock"
+        okText={hasExistingAllocateStock ? 'Add Stock' : 'Set Stock'}
         destroyOnClose
-        width={540}
+        width={620}
       >
         <Form form={allocateForm} layout="vertical" style={{ marginTop: 12 }}>
           {mappingData?.product && (
@@ -1342,7 +1444,7 @@ export const StockMaintenancePage: React.FC = () => {
           </Row>
 
           <Row gutter={12}>
-            <Col span={12}>
+            <Col span={24}>
               <Form.Item
                 name="location_id"
                 label="Storage Location"
@@ -1353,33 +1455,156 @@ export const StockMaintenancePage: React.FC = () => {
                   placeholder="Select godown / room / floor..."
                   treeData={locationTree}
                   treeDefaultExpandAll
-                  filterTreeNode={(search, item) =>
-                    (item?.title as string)?.toLowerCase().includes(search.toLowerCase())
+                  popupMatchSelectWidth={false}
+                  dropdownMatchSelectWidth={false}
+                  dropdownStyle={{
+                    minWidth: 440,
+                    maxWidth: 620,
+                    maxHeight: 420,
+                    overflowX: 'auto',
+                    whiteSpace: 'nowrap',
+                  }}
+                  treeNodeFilterProp="titleText"
+                  filterTreeNode={(search, item: any) =>
+                    (item?.titleText || '').toLowerCase().includes(search.toLowerCase().trim())
                   }
                 />
               </Form.Item>
             </Col>
+          </Row>
+
+          {/* Dynamic Smart Status Badge */}
+          {watchedAllocateLocationId ? (
+            hasExistingAllocateStock ? (
+              <div
+                style={{
+                  background: '#f0fdf4',
+                  border: '1px solid #bbf7d0',
+                  borderRadius: 8,
+                  padding: '12px 16px',
+                  marginBottom: 16,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  gap: 12,
+                }}
+              >
+                <div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                    <Tag color="success" style={{ fontWeight: 600, margin: 0, padding: '2px 8px' }}>
+                      Add to Existing Stock
+                    </Tag>
+                    <Text strong style={{ color: '#166534', fontSize: 13 }}>
+                      Current Stock: {existingAllocateStockQty} units
+                    </Text>
+                  </div>
+                  <div style={{ fontSize: 12, color: '#15803d', marginTop: 4 }}>
+                    Stock already exists at this location. Units entered below will be added to the current {existingAllocateStockQty} units.
+                  </div>
+                </div>
+                {Number(watchedAllocateQuantity || 0) > 0 && (
+                  <div
+                    style={{
+                      textAlign: 'right',
+                      background: '#dcfce7',
+                      padding: '6px 12px',
+                      borderRadius: 6,
+                      border: '1px solid #86efac',
+                      flexShrink: 0,
+                    }}
+                  >
+                    <div style={{ fontSize: 11, color: '#166534', textTransform: 'uppercase', fontWeight: 600 }}>
+                      New Total
+                    </div>
+                    <div style={{ fontSize: 16, fontWeight: 700, color: '#14532d' }}>
+                      {existingAllocateStockQty + Number(watchedAllocateQuantity || 0)} units
+                    </div>
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div
+                style={{
+                  background: '#f0f9ff',
+                  border: '1px solid #bae6fd',
+                  borderRadius: 8,
+                  padding: '12px 16px',
+                  marginBottom: 16,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  gap: 12,
+                }}
+              >
+                <div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                    <Tag color="processing" style={{ fontWeight: 600, margin: 0, padding: '2px 8px' }}>
+                      Set Initial Stock
+                    </Tag>
+                    <Text strong style={{ color: '#0369a1', fontSize: 13 }}>
+                      Current Stock: 0 units
+                    </Text>
+                  </div>
+                  <div style={{ fontSize: 12, color: '#0284c7', marginTop: 4 }}>
+                    No stock exists at this location yet. Units entered below will establish the starting physical inventory.
+                  </div>
+                </div>
+                {Number(watchedAllocateQuantity || 0) > 0 && (
+                  <div
+                    style={{
+                      textAlign: 'right',
+                      background: '#e0f2fe',
+                      padding: '6px 12px',
+                      borderRadius: 6,
+                      border: '1px solid #7dd3fc',
+                      flexShrink: 0,
+                    }}
+                  >
+                    <div style={{ fontSize: 11, color: '#0369a1', textTransform: 'uppercase', fontWeight: 600 }}>
+                      Initial Total
+                    </div>
+                    <div style={{ fontSize: 16, fontWeight: 700, color: '#0c4a6e' }}>
+                      {Number(watchedAllocateQuantity || 0)} units
+                    </div>
+                  </div>
+                )}
+              </div>
+            )
+          ) : (
+            <div
+              style={{
+                background: '#f8fafc',
+                border: '1px dashed #cbd5e1',
+                borderRadius: 8,
+                padding: '10px 14px',
+                marginBottom: 16,
+                color: '#64748b',
+                fontSize: 12,
+                display: 'flex',
+                alignItems: 'center',
+                gap: 8,
+              }}
+            >
+              <span>ℹ️ Select a storage location above to check existing stock and operation mode.</span>
+            </div>
+          )}
+
+          <Row gutter={12}>
             <Col span={12}>
               <Form.Item
                 name="quantity"
-                label="Quantity (Units)"
+                label={hasExistingAllocateStock ? 'Quantity to Add (Units)' : 'Initial Quantity (Units)'}
                 rules={[{ required: true, message: 'Enter quantity' }]}
               >
                 <InputNumber min={1} style={{ width: '100%' }} />
               </Form.Item>
             </Col>
+            <Col span={12}>
+              <Form.Item name="notes" label="Notes / Reference">
+                <Input placeholder="e.g. Intake, showroom setup, carton count" />
+              </Form.Item>
+            </Col>
           </Row>
-
-          <Form.Item name="mode" label="Action Mode">
-            <Radio.Group>
-              <Radio value="add">Add to existing stock</Radio>
-              <Radio value="set_total">Set exact physical total</Radio>
-            </Radio.Group>
-          </Form.Item>
-
-          <Form.Item name="notes" label="Notes / Reference">
-            <Input placeholder="e.g. Initial intake, showroom setup, carton count" />
-          </Form.Item>
         </Form>
       </Modal>
 
@@ -1402,7 +1627,7 @@ export const StockMaintenancePage: React.FC = () => {
         confirmLoading={transferLoading}
         okText="Dispatch Transfer"
         destroyOnClose
-        width={560}
+        width={620}
       >
         {selectedItemForTransfer && (
           <Form form={transferForm} layout="vertical" style={{ marginTop: 12 }}>
@@ -1444,8 +1669,18 @@ export const StockMaintenancePage: React.FC = () => {
                 placeholder="Select destination showroom or godown..."
                 treeData={locationTree}
                 treeDefaultExpandAll
-                filterTreeNode={(search, item) =>
-                  (item?.title as string)?.toLowerCase().includes(search.toLowerCase())
+                popupMatchSelectWidth={false}
+                dropdownMatchSelectWidth={false}
+                dropdownStyle={{
+                  minWidth: 440,
+                  maxWidth: 620,
+                  maxHeight: 420,
+                  overflowX: 'auto',
+                  whiteSpace: 'nowrap',
+                }}
+                treeNodeFilterProp="titleText"
+                filterTreeNode={(search, item: any) =>
+                  (item?.titleText || '').toLowerCase().includes(search.toLowerCase().trim())
                 }
               />
             </Form.Item>
@@ -1579,7 +1814,7 @@ export const StockMaintenancePage: React.FC = () => {
         confirmLoading={adjustLoading}
         okText="Apply Adjustment"
         destroyOnClose
-        width={560}
+        width={620}
       >
         {selectedItemForAdjust && (
           <Form form={adjustForm} layout="vertical" style={{ marginTop: 12 }}>
