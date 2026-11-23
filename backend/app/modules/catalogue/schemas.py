@@ -175,6 +175,12 @@ class ProductSearchItem(BaseModel):
     total_stock: Decimal = Decimal("0")
 
 
+class ImageUrlCreate(BaseModel):
+    file_url: str
+    caption: Optional[str] = None
+    is_primary: Optional[bool] = False
+
+
 class ImageUpdate(BaseModel):
     caption: Optional[str] = None
     is_primary: Optional[bool] = None

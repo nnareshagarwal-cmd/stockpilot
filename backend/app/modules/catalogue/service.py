@@ -893,6 +893,49 @@ async def upload_product_images(
     return [ProductImageResponse.model_validate(img) for img in saved_images]
 
 
+async def add_product_image_url(
+    db: AsyncSession,
+    tenant_id: uuid.UUID,
+    user_id: uuid.UUID,
+    product_id: uuid.UUID,
+    file_url: str,
+    caption: Optional[str] = None,
+    is_primary: Optional[bool] = False,
+) -> ProductImageResponse:
+    res = await db.execute(select(Product).where(Product.id == product_id, Product.tenant_id == tenant_id))
+    product = res.scalar_one_or_none()
+    if not product:
+        raise NotFoundException("Product", str(product_id))
+
+    count_res = await db.execute(
+        select(func.count(ProductImage.id)).where(ProductImage.product_id == product_id)
+    )
+    existing_count = count_res.scalar_one()
+
+    make_primary = bool(is_primary or existing_count == 0)
+    if make_primary:
+        all_imgs_res = await db.execute(select(ProductImage).where(ProductImage.product_id == product_id))
+        for other in all_imgs_res.scalars().all():
+            other.is_primary = False
+
+    filename = file_url.split("/")[-1].split("?")[0] or "image.jpg"
+    img = ProductImage(
+        tenant_id=tenant_id,
+        product_id=product_id,
+        file_url=file_url,
+        file_name=filename,
+        caption=caption,
+        is_primary=make_primary,
+        sort_order=existing_count,
+        mime_type="image/jpeg",
+    )
+    db.add(img)
+    await log_audit(db, tenant_id, user_id, "CREATE", "product_image", product.id, f"Added image URL {file_url}")
+    await db.commit()
+    await db.refresh(img)
+    return ProductImageResponse.model_validate(img)
+
+
 async def update_product_image(
     db: AsyncSession,
     tenant_id: uuid.UUID,

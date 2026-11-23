@@ -11,6 +11,7 @@ from app.modules.catalogue.schemas import (
     ProductCreate,
     ProductUpdate,
     ImageUpdate,
+    ImageUrlCreate,
 )
 from app.modules.catalogue import service
 
@@ -186,6 +187,19 @@ async def upload_images(
         db, user.current_tenant_id, user.id, product_id, files, variant_id
     )
     return {"data": [img.model_dump() for img in images], "message": f"{len(images)} image(s) uploaded successfully"}
+
+
+@router.post("/{product_id}/images/url")
+async def add_image_url(
+    product_id: uuid.UUID,
+    data: ImageUrlCreate,
+    user: User = Depends(require_role("admin")),
+    db: AsyncSession = Depends(get_db),
+):
+    img = await service.add_product_image_url(
+        db, user.current_tenant_id, user.id, product_id, data.file_url, data.caption, data.is_primary
+    )
+    return {"data": img.model_dump(), "message": "Image URL added successfully"}
 
 
 @router.put("/{product_id}/images/{image_id}")

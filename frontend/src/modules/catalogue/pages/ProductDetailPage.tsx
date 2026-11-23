@@ -21,6 +21,8 @@ import {
   Modal,
   Form,
   InputNumber,
+  Input,
+  Tooltip,
 } from 'antd'
 import {
   ArrowLeftOutlined,
@@ -34,6 +36,9 @@ import {
   InboxOutlined,
   ApartmentOutlined,
   ColumnWidthOutlined,
+  PictureOutlined,
+  PlusOutlined,
+  LinkOutlined,
 } from '@ant-design/icons'
 import { useParams, useNavigate, useLocation } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
@@ -145,13 +150,17 @@ export const ProductDetailPage: React.FC = () => {
 
   const activeStockBalances = (stockBalances || []).filter((b: any) => Number(b.quantity) > 0)
 
+  const [selectedImageId, setSelectedImageId] = useState<string | null>(null)
+  const [urlModalOpen, setUrlModalOpen] = useState(false)
+  const [urlForm] = Form.useForm()
+
   // Set primary image mutation
   const setPrimaryMutation = useMutation({
     mutationFn: async (imageId: string) => {
       await apiClient.put(`/products/${id}/images/${imageId}`, { is_primary: true })
     },
     onSuccess: () => {
-      message.success('Primary image updated')
+      message.success('Primary cover image updated')
       queryClient.invalidateQueries({ queryKey: ['product-detail', id] })
     },
   })
@@ -163,6 +172,7 @@ export const ProductDetailPage: React.FC = () => {
     },
     onSuccess: () => {
       message.success('Image deleted')
+      setSelectedImageId(null)
       queryClient.invalidateQueries({ queryKey: ['product-detail', id] })
     },
   })
@@ -176,7 +186,7 @@ export const ProductDetailPage: React.FC = () => {
       await apiClient.post(`/products/${id}/images`, formData, {
         headers: { 'Content-Type': 'multipart/form-data' },
       })
-      message.success('Image uploaded')
+      message.success('Image uploaded successfully')
       onSuccess('ok')
       queryClient.invalidateQueries({ queryKey: ['product-detail', id] })
     } catch (err) {
@@ -184,6 +194,22 @@ export const ProductDetailPage: React.FC = () => {
       onError(err)
     }
   }
+
+  // Add image by URL mutation
+  const addImageUrlMutation = useMutation({
+    mutationFn: async (values: { file_url: string; caption?: string }) => {
+      await apiClient.post(`/products/${id}/images/url`, values)
+    },
+    onSuccess: () => {
+      message.success('Image URL added successfully')
+      setUrlModalOpen(false)
+      urlForm.resetFields()
+      queryClient.invalidateQueries({ queryKey: ['product-detail', id] })
+    },
+    onError: (err: any) => {
+      message.error(err?.response?.data?.message || 'Failed to add image URL')
+    },
+  })
 
   if (isLoading) {
     return (
@@ -205,6 +231,7 @@ export const ProductDetailPage: React.FC = () => {
   }
 
   const primaryImage = product.images.find((img) => img.is_primary) || product.images[0]
+  const activeImage = product.images.find((img) => img.id === selectedImageId) || primaryImage
 
   const variantColumns = [
     {
@@ -389,31 +416,278 @@ export const ProductDetailPage: React.FC = () => {
       <Row gutter={[24, 24]} style={{ marginBottom: '24px' }}>
         <Col xs={24} md={8}>
           <Card
-            style={{ borderRadius: '12px', overflow: 'hidden', textAlign: 'center' }}
-            bodyStyle={{ padding: 0 }}
+            title={
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <Space size={6}>
+                  <PictureOutlined style={{ color: '#1677ff' }} />
+                  <span style={{ fontWeight: 600, fontSize: '14px' }}>Product Images</span>
+                  <Badge
+                    count={product.images?.length || 0}
+                    style={{ backgroundColor: '#f1f5f9', color: '#475569', boxShadow: 'none' }}
+                  />
+                </Space>
+                <Space size={6}>
+                  <Tooltip title="Add image from web URL">
+                    <Button
+                      size="small"
+                      icon={<LinkOutlined />}
+                      onClick={() => setUrlModalOpen(true)}
+                    >
+                      URL
+                    </Button>
+                  </Tooltip>
+                  <Upload
+                    customRequest={handleUploadFiles}
+                    showUploadList={false}
+                    accept="image/png, image/jpeg, image/webp"
+                    multiple
+                  >
+                    <Button size="small" type="primary" icon={<UploadOutlined />}>
+                      Upload
+                    </Button>
+                  </Upload>
+                </Space>
+              </div>
+            }
+            headStyle={{ padding: '0 16px', minHeight: '48px', borderBottom: '1px solid #f1f5f9' }}
+            bodyStyle={{ padding: 0, display: 'flex', flexDirection: 'column' }}
+            style={{
+              borderRadius: '12px',
+              overflow: 'hidden',
+              boxShadow: '0 1px 3px rgba(0,0,0,0.05)',
+              border: '1px solid #e2e8f0',
+              height: '100%',
+            }}
           >
-            <div
-              style={{
-                height: '300px',
-                background: '#f8fafc',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-              }}
-            >
-              {primaryImage ? (
-                <Image
-                  src={primaryImage.file_url}
-                  alt={product.name}
-                  style={{ width: '100%', height: '300px', objectFit: 'contain' }}
-                />
-              ) : (
-                <div style={{ color: '#94a3b8' }}>
-                  <AppstoreOutlined style={{ fontSize: '64px' }} />
-                  <div style={{ marginTop: '8px' }}>No Product Image</div>
+            {product.images && product.images.length > 0 && activeImage ? (
+              <div style={{ display: 'flex', flexDirection: 'column', flex: 1 }}>
+                {/* Main Image Viewport with overlay tags */}
+                <div
+                  style={{
+                    height: '240px',
+                    background: '#f8fafc',
+                    position: 'relative',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    overflow: 'hidden',
+                  }}
+                >
+                  <Image
+                    src={activeImage.file_url}
+                    alt={activeImage.caption || product.name}
+                    style={{
+                      maxHeight: '240px',
+                      maxWidth: '100%',
+                      objectFit: 'contain',
+                      display: 'block',
+                      margin: '0 auto',
+                    }}
+                  />
+                  {activeImage.is_primary && (
+                    <Tag
+                      color="green"
+                      style={{
+                        position: 'absolute',
+                        top: 10,
+                        left: 10,
+                        zIndex: 2,
+                        margin: 0,
+                        fontWeight: 600,
+                        boxShadow: '0 1px 3px rgba(0,0,0,0.15)',
+                      }}
+                    >
+                      <StarFilled /> Primary Cover
+                    </Tag>
+                  )}
                 </div>
-              )}
-            </div>
+
+                {/* Image Details & Action Controls */}
+                <div
+                  style={{
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    padding: '8px 12px',
+                    background: '#f8fafc',
+                    borderTop: '1px solid #e2e8f0',
+                    borderBottom: '1px solid #e2e8f0',
+                  }}
+                >
+                  <Text ellipsis style={{ fontSize: '12px', maxWidth: '140px', color: '#64748b' }}>
+                    {activeImage.caption || activeImage.file_name}
+                  </Text>
+                  <Space size={6}>
+                    {!activeImage.is_primary ? (
+                      <Button
+                        size="small"
+                        type="text"
+                        icon={<StarOutlined style={{ color: '#eab308' }} />}
+                        loading={setPrimaryMutation.isPending}
+                        onClick={() => setPrimaryMutation.mutate(activeImage.id)}
+                        style={{ fontSize: '12px', height: '24px', padding: '0 6px' }}
+                      >
+                        Make Primary
+                      </Button>
+                    ) : (
+                      <span style={{ fontSize: '11px', color: '#16a34a', fontWeight: 600 }}>Default Cover</span>
+                    )}
+                    <Popconfirm
+                      title="Delete this image?"
+                      description="Are you sure you want to permanently remove this image?"
+                      onConfirm={() => {
+                        deleteImageMutation.mutate(activeImage.id)
+                        setSelectedImageId(null)
+                      }}
+                      okText="Delete"
+                      okType="danger"
+                    >
+                      <Tooltip title="Delete image">
+                        <Button
+                          size="small"
+                          type="text"
+                          danger
+                          icon={<DeleteOutlined />}
+                          loading={deleteImageMutation.isPending}
+                          style={{ height: '24px', width: '24px', padding: 0 }}
+                        />
+                      </Tooltip>
+                    </Popconfirm>
+                  </Space>
+                </div>
+
+                {/* Thumbnails strip */}
+                <div
+                  style={{
+                    padding: '10px 12px',
+                    display: 'flex',
+                    gap: '8px',
+                    overflowX: 'auto',
+                    alignItems: 'center',
+                    background: '#ffffff',
+                    minHeight: '66px',
+                  }}
+                >
+                  {product.images.map((img: any) => {
+                    const isSelected = img.id === activeImage.id
+                    return (
+                      <div
+                        key={img.id}
+                        onClick={() => setSelectedImageId(img.id)}
+                        style={{
+                          width: 46,
+                          height: 46,
+                          borderRadius: 6,
+                          border: isSelected ? '2px solid #1677ff' : '1px solid #cbd5e1',
+                          padding: 2,
+                          cursor: 'pointer',
+                          position: 'relative',
+                          flexShrink: 0,
+                          background: '#f8fafc',
+                          overflow: 'hidden',
+                          transition: 'all 0.15s ease',
+                          boxShadow: isSelected ? '0 0 0 1px #1677ff' : 'none',
+                        }}
+                      >
+                        <img
+                          src={img.file_url}
+                          alt={img.file_name}
+                          style={{ width: '100%', height: '100%', objectFit: 'cover', borderRadius: 4 }}
+                        />
+                        {img.is_primary && (
+                          <div
+                            style={{
+                              position: 'absolute',
+                              bottom: 0,
+                              right: 0,
+                              background: '#16a34a',
+                              color: '#fff',
+                              borderRadius: '3px 0 0 0',
+                              fontSize: '8px',
+                              padding: '1px 2px',
+                              lineHeight: 1,
+                            }}
+                          >
+                            <StarFilled style={{ fontSize: '7px' }} />
+                          </div>
+                        )}
+                      </div>
+                    )
+                  })}
+
+                  {/* '+' upload thumbnail */}
+                  <Upload
+                    customRequest={handleUploadFiles}
+                    showUploadList={false}
+                    accept="image/png, image/jpeg, image/webp"
+                    multiple
+                  >
+                    <Tooltip title="Upload more images">
+                      <div
+                        style={{
+                          width: 46,
+                          height: 46,
+                          borderRadius: 6,
+                          border: '1px dashed #cbd5e1',
+                          display: 'flex',
+                          flexDirection: 'column',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          cursor: 'pointer',
+                          flexShrink: 0,
+                          color: '#64748b',
+                          background: '#f8fafc',
+                        }}
+                      >
+                        <PlusOutlined style={{ fontSize: '13px' }} />
+                        <span style={{ fontSize: '9px', marginTop: '1px' }}>Add</span>
+                      </div>
+                    </Tooltip>
+                  </Upload>
+                </div>
+              </div>
+            ) : (
+              /* Empty state with direct drag & drop upload */
+              <div style={{ padding: '24px 16px', textAlign: 'center', flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
+                <Upload.Dragger
+                  customRequest={handleUploadFiles}
+                  showUploadList={false}
+                  accept="image/png, image/jpeg, image/webp"
+                  multiple
+                  style={{
+                    padding: '20px 12px',
+                    background: '#f8fafc',
+                    border: '1px dashed #cbd5e1',
+                    borderRadius: '8px',
+                  }}
+                >
+                  <p style={{ margin: '0 0 8px' }}>
+                    <PictureOutlined style={{ fontSize: 40, color: '#94a3b8' }} />
+                  </p>
+                  <p style={{ fontWeight: 600, fontSize: '13px', margin: '0 0 4px', color: '#1e293b' }}>
+                    No Product Images
+                  </p>
+                  <p style={{ fontSize: '12px', color: '#64748b', margin: '0 0 12px' }}>
+                    Click or drag files here to upload
+                  </p>
+                  <Button size="small" type="primary" icon={<UploadOutlined />}>
+                    Select Files
+                  </Button>
+                </Upload.Dragger>
+                <div style={{ marginTop: '10px', display: 'flex', justifyContent: 'center', alignItems: 'center', gap: 6 }}>
+                  <span style={{ fontSize: '12px', color: '#94a3b8' }}>Or</span>
+                  <Button
+                    type="link"
+                    size="small"
+                    icon={<LinkOutlined />}
+                    onClick={() => setUrlModalOpen(true)}
+                    style={{ padding: 0, fontSize: '12px' }}
+                  >
+                    Add image from web URL
+                  </Button>
+                </div>
+              </div>
+            )}
           </Card>
         </Col>
 
@@ -773,73 +1047,6 @@ export const ProductDetailPage: React.FC = () => {
                 ),
             },
             {
-              key: 'images',
-              label: `Gallery (${product.images.length})`,
-              children: (
-                <div>
-                  <div style={{ marginBottom: '20px' }}>
-                    <Upload
-                      customRequest={handleUploadFiles}
-                      showUploadList={false}
-                      accept="image/png, image/jpeg, image/webp"
-                    >
-                      <Button icon={<UploadOutlined />}>Upload New Image</Button>
-                    </Upload>
-                  </div>
-
-                  {product.images.length === 0 ? (
-                    <Empty description="No images uploaded" />
-                  ) : (
-                    <Row gutter={[16, 16]}>
-                      {product.images.map((img) => (
-                        <Col xs={24} sm={12} md={6} key={img.id}>
-                          <Card
-                            hoverable
-                            cover={
-                              <div style={{ height: '180px', overflow: 'hidden' }}>
-                                <Image
-                                  src={img.file_url}
-                                  alt={img.file_name}
-                                  style={{ width: '100%', height: '180px', objectFit: 'cover' }}
-                                />
-                              </div>
-                            }
-                            actions={[
-                              img.is_primary ? (
-                                <Text key="primary" type="success">
-                                  <StarFilled /> Primary
-                                </Text>
-                              ) : (
-                                <Button
-                                  key="set-primary"
-                                  type="text"
-                                  icon={<StarOutlined />}
-                                  onClick={() => setPrimaryMutation.mutate(img.id)}
-                                >
-                                  Make Primary
-                                </Button>
-                              ),
-                              <Popconfirm
-                                key="del"
-                                title="Delete image?"
-                                onConfirm={() => deleteImageMutation.mutate(img.id)}
-                              >
-                                <Button type="text" danger icon={<DeleteOutlined />} />
-                              </Popconfirm>,
-                            ]}
-                          >
-                            <Text ellipsis style={{ fontSize: '12px' }}>
-                              {img.caption || img.file_name}
-                            </Text>
-                          </Card>
-                        </Col>
-                      ))}
-                    </Row>
-                  )}
-                </div>
-              ),
-            },
-            {
               key: 'movements',
               label: 'Stock Movements (Phase 2)',
               children: (
@@ -954,6 +1161,41 @@ export const ProductDetailPage: React.FC = () => {
               </Form.Item>
             </Col>
           </Row>
+        </Form>
+      </Modal>
+
+      {/* Add Image via URL Modal */}
+      <Modal
+        title="Add Product Image via Web URL"
+        open={urlModalOpen}
+        onCancel={() => {
+          setUrlModalOpen(false)
+          urlForm.resetFields()
+        }}
+        onOk={() => urlForm.submit()}
+        confirmLoading={addImageUrlMutation.isPending}
+        okText="Add Image"
+      >
+        <Form
+          form={urlForm}
+          layout="vertical"
+          onFinish={(values) => {
+            addImageUrlMutation.mutate(values)
+          }}
+        >
+          <Form.Item
+            name="file_url"
+            label="Image Web URL"
+            rules={[
+              { required: true, message: 'Please enter a valid image web URL' },
+              { type: 'url', message: 'Must be a valid web URL (e.g. https://...)' },
+            ]}
+          >
+            <Input placeholder="https://images.unsplash.com/... or image link" />
+          </Form.Item>
+          <Form.Item name="caption" label="Caption / Description (Optional)">
+            <Input placeholder="e.g. Front View, Polish Tone, Side Angle" />
+          </Form.Item>
         </Form>
       </Modal>
     </div>
