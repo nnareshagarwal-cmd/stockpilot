@@ -171,7 +171,9 @@ export const AttributesPage: React.FC = () => {
     },
     onSuccess: () => {
       message.success('Specification unlinked from category')
-      queryClient.invalidateQueries({ queryKey: ['category-attribute-mappings', activeCategoryId] })
+      queryClient.invalidateQueries({ queryKey: ['category-attribute-mappings'] })
+      queryClient.invalidateQueries({ queryKey: ['attributes-by-category'] })
+      queryClient.invalidateQueries({ queryKey: ['attributes-list'] })
     },
     onError: (err: any) => {
       message.error(err.response?.data?.error?.message || 'Failed to unlink specification')

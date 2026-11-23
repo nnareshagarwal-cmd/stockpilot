@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import React, { useState, useEffect } from 'react'
 import {
   Typography,
   Card,
@@ -23,6 +23,9 @@ import {
   InputNumber,
   Input,
   Tooltip,
+  Select,
+  Switch,
+  Checkbox,
 } from 'antd'
 import {
   ArrowLeftOutlined,
@@ -39,14 +42,85 @@ import {
   PictureOutlined,
   PlusOutlined,
   LinkOutlined,
+  SaveOutlined,
 } from '@ant-design/icons'
 import { useParams, useNavigate, useLocation } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import apiClient from '../../../api/client'
-import { ApiResponse, ProductDetail } from '../../../api/types'
+import { ApiResponse, ProductDetail, AttributeDefinition, VariantDetail } from '../../../api/types'
 import { cleanLocationName } from '../../stock/StockBalancesPage'
 
 const { Title, Text, Paragraph } = Typography
+
+// Dynamic Choice Dropdown with Inline "+ Add New Value"
+const DynamicChoiceSelect: React.FC<{
+  attrDef: AttributeDefinition
+  value?: string
+  onChange?: (val: string) => void
+  onAddOption: (attrDef: AttributeDefinition, newLabel: string) => Promise<string | undefined>
+}> = ({ attrDef, value, onChange, onAddOption }) => {
+  const [newOptionInput, setNewOptionInput] = useState('')
+  const [adding, setAdding] = useState(false)
+
+  const handleAdd = async () => {
+    if (!newOptionInput.trim()) return
+    setAdding(true)
+    try {
+      const addedOptionId = await onAddOption(attrDef, newOptionInput.trim())
+      setNewOptionInput('')
+      if (addedOptionId && onChange) {
+        onChange(addedOptionId)
+      }
+    } finally {
+      setAdding(false)
+    }
+  }
+
+  return (
+    <Select
+      placeholder={`Select ${attrDef.name}`}
+      allowClear
+      showSearch
+      filterOption={(input, option) =>
+        (option?.label ?? '').toString().toLowerCase().includes(input.toLowerCase())
+      }
+      value={value}
+      onChange={onChange}
+      options={attrDef.options?.map((o) => ({ label: o.value, value: o.id })) || []}
+      dropdownRender={(menu) => (
+        <>
+          {menu}
+          <Divider style={{ margin: '8px 0' }} />
+          <Space style={{ padding: '0 8px 6px', width: '100%' }}>
+            <Input
+              size="small"
+              placeholder={`+ Add new ${attrDef.name}`}
+              value={newOptionInput}
+              onChange={(e) => setNewOptionInput(e.target.value)}
+              onKeyDown={(e) => {
+                e.stopPropagation()
+                if (e.key === 'Enter') {
+                  e.preventDefault()
+                  handleAdd()
+                }
+              }}
+              style={{ width: '180px' }}
+            />
+            <Button
+              type="primary"
+              size="small"
+              icon={<PlusOutlined />}
+              loading={adding}
+              onClick={handleAdd}
+            >
+              Add
+            </Button>
+          </Space>
+        </>
+      )}
+    />
+  )
+}
 
 export const ProductDetailPage: React.FC = () => {
   const { id } = useParams<{ id: string }>()
@@ -56,6 +130,12 @@ export const ProductDetailPage: React.FC = () => {
   const [activeTab, setActiveTab] = useState('overview')
   const [dimModalOpen, setDimModalOpen] = useState(false)
   const [dimForm] = Form.useForm()
+
+  // In-tab Variant & Specifications state
+  const [variantModalOpen, setVariantModalOpen] = useState(false)
+  const [editingVariant, setEditingVariant] = useState<VariantDetail | null>(null)
+  const [variantForm] = Form.useForm()
+  const [specsForm] = Form.useForm()
 
   const handleOpenDimensionModal = () => {
     if (product) {
@@ -211,6 +291,179 @@ export const ProductDetailPage: React.FC = () => {
     },
   })
 
+  // Query units for variant creation / editing
+  const { data: units } = useQuery({
+    queryKey: ['units-list'],
+    queryFn: async () => {
+      const res = await apiClient.get<ApiResponse<any[]>>('/units')
+      return res.data.data
+    },
+  })
+
+  // Dynamic attributes query based on product category & subcategory
+  const effectiveCategoryId = product?.subcategory_id || product?.category_id
+  const { data: categoryAttributes, isLoading: isAttributesLoading } = useQuery({
+    queryKey: ['attributes-by-category', effectiveCategoryId],
+    queryFn: async () => {
+      const url = effectiveCategoryId ? `/attributes?category_id=${effectiveCategoryId}` : '/attributes'
+      const res = await apiClient.get<ApiResponse<AttributeDefinition[]>>(url)
+      return res.data.data
+    },
+    enabled: !!product,
+  })
+
+  // Sync existing product attributes into the specifications form
+  useEffect(() => {
+    if (product?.attributes) {
+      const attrValues: any = {}
+      product.attributes.forEach((attr: any) => {
+        if (attr.option_id !== null && attr.option_id !== undefined) {
+          attrValues[`attr_${attr.attribute_id}`] = attr.option_id
+        } else if (attr.decimal_value !== null && attr.decimal_value !== undefined) {
+          attrValues[`attr_${attr.attribute_id}`] = attr.decimal_value
+        } else if (attr.numeric_value !== null && attr.numeric_value !== undefined) {
+          attrValues[`attr_${attr.attribute_id}`] = attr.numeric_value
+        } else if (attr.boolean_value !== null && attr.boolean_value !== undefined) {
+          attrValues[`attr_${attr.attribute_id}`] = attr.boolean_value
+        } else if (attr.text_value !== null && attr.text_value !== undefined) {
+          attrValues[`attr_${attr.attribute_id}`] = attr.text_value
+        }
+      })
+      specsForm.setFieldsValue(attrValues)
+    }
+  }, [product?.attributes, specsForm])
+
+  // Handler to add a new LOV / attribute option dynamically
+  const handleAddNewOption = async (attrDef: AttributeDefinition, newLabel: string) => {
+    try {
+      const cat = attrDef.code || 'general'
+      const res = await apiClient.post<ApiResponse<any>>('/lov', {
+        category: cat,
+        label: newLabel,
+        value: newLabel,
+      })
+      message.success(`Added "${newLabel}" to ${attrDef.name}`)
+      await queryClient.invalidateQueries({ queryKey: ['attributes-by-category'] })
+      return res.data.data?.option_id
+    } catch (err: any) {
+      const msg = err.response?.data?.error?.message || 'Failed to add option'
+      message.error(msg)
+      return undefined
+    }
+  }
+
+  // Variant Modal Handlers
+  const handleOpenAddVariant = () => {
+    setEditingVariant(null)
+    variantForm.resetFields()
+    const defaultSku = product?.variants?.[0]?.sku
+      ? `${product.variants[0].sku}-${product.variants.length + 1}`
+      : ''
+    variantForm.setFieldsValue({
+      variant_name: '',
+      sku: defaultSku,
+      unit_id: units?.[0]?.id || undefined,
+      purchase_price: 0,
+      selling_price: 0,
+      mrp: undefined,
+      barcode: '',
+      is_active: true,
+    })
+    setVariantModalOpen(true)
+  }
+
+  const handleOpenEditVariant = (v: VariantDetail) => {
+    setEditingVariant(v)
+    variantForm.resetFields()
+    variantForm.setFieldsValue({
+      variant_name: v.variant_name,
+      sku: v.sku,
+      unit_id: v.unit_id,
+      purchase_price: v.purchase_price,
+      selling_price: v.selling_price,
+      mrp: v.mrp,
+      barcode: v.barcode,
+      is_active: v.is_active !== false,
+    })
+    setVariantModalOpen(true)
+  }
+
+  // Variant Mutations
+  const createVariantMutation = useMutation({
+    mutationFn: async (payload: any) => {
+      await apiClient.post(`/products/${id}/variants`, payload)
+    },
+    onSuccess: () => {
+      message.success('Variant created successfully')
+      setVariantModalOpen(false)
+      queryClient.invalidateQueries({ queryKey: ['product-detail', id] })
+    },
+    onError: (err: any) => {
+      message.error(err.response?.data?.error?.message || err.response?.data?.message || 'Failed to create variant')
+    },
+  })
+
+  const updateVariantMutation = useMutation({
+    mutationFn: async (payload: any) => {
+      if (!editingVariant) return
+      await apiClient.put(`/products/${id}/variants/${editingVariant.id}`, payload)
+    },
+    onSuccess: () => {
+      message.success('Variant updated successfully')
+      setVariantModalOpen(false)
+      queryClient.invalidateQueries({ queryKey: ['product-detail', id] })
+    },
+    onError: (err: any) => {
+      message.error(err.response?.data?.error?.message || err.response?.data?.message || 'Failed to update variant')
+    },
+  })
+
+  const deleteVariantMutation = useMutation({
+    mutationFn: async (variantId: string) => {
+      await apiClient.delete(`/products/${id}/variants/${variantId}`)
+    },
+    onSuccess: () => {
+      message.success('Variant deleted successfully')
+      queryClient.invalidateQueries({ queryKey: ['product-detail', id] })
+    },
+    onError: (err: any) => {
+      message.error(err.response?.data?.error?.message || err.response?.data?.message || 'Failed to delete variant')
+    },
+  })
+
+  // Technical Specifications Save Mutation
+  const saveSpecsMutation = useMutation({
+    mutationFn: async (values: any) => {
+      const formattedAttrs: any[] = []
+      if (categoryAttributes) {
+        categoryAttributes.forEach((attrDef) => {
+          const val = values[`attr_${attrDef.id}`]
+          if (val !== undefined && val !== null && val !== '') {
+            const item: any = { attribute_id: attrDef.id }
+            if (attrDef.data_type === 'decimal' || attrDef.data_type === 'number') {
+              item.decimal_value = Number(val)
+            } else if (attrDef.data_type === 'boolean') {
+              item.boolean_value = Boolean(val)
+            } else if (attrDef.data_type === 'single_choice') {
+              item.option_id = val
+            } else {
+              item.text_value = String(val)
+            }
+            formattedAttrs.push(item)
+          }
+        })
+      }
+      await apiClient.put(`/products/${id}`, { attributes: formattedAttrs })
+    },
+    onSuccess: () => {
+      message.success('Technical specifications saved successfully')
+      queryClient.invalidateQueries({ queryKey: ['product-detail', id] })
+    },
+    onError: (err: any) => {
+      message.error(err.response?.data?.error?.message || err.response?.data?.message || 'Failed to save specifications')
+    },
+  })
+
   if (isLoading) {
     return (
       <div style={{ textAlign: 'center', padding: '100px' }}>
@@ -290,6 +543,42 @@ export const ProductDetailPage: React.FC = () => {
       dataIndex: 'is_active',
       key: 'status',
       render: (act: boolean) => <Tag color={act ? 'green' : 'default'}>{act ? 'Active' : 'Inactive'}</Tag>,
+    },
+    {
+      title: 'Actions',
+      key: 'actions',
+      width: 90,
+      align: 'center' as const,
+      render: (_: any, r: VariantDetail) => (
+        <Space size={4}>
+          <Tooltip title="Edit Variant">
+            <Button
+              type="text"
+              icon={<EditOutlined style={{ color: '#1677ff' }} />}
+              size="small"
+              onClick={() => handleOpenEditVariant(r)}
+            />
+          </Tooltip>
+          <Popconfirm
+            title="Delete Variant"
+            description="Are you sure you want to delete this variant? This is only permitted if current stock is 0."
+            onConfirm={() => deleteVariantMutation.mutate(r.id)}
+            okText="Delete"
+            okType="danger"
+            cancelText="Cancel"
+          >
+            <Tooltip title="Delete Variant">
+              <Button
+                type="text"
+                danger
+                icon={<DeleteOutlined />}
+                size="small"
+                loading={deleteVariantMutation.isPending && (deleteVariantMutation.variables as any) === r.id}
+              />
+            </Tooltip>
+          </Popconfirm>
+        </Space>
+      ),
     },
   ]
 
@@ -743,12 +1032,40 @@ export const ProductDetailPage: React.FC = () => {
               key: 'overview',
               label: 'Variants & Pricing',
               children: (
-                <Table
-                  columns={variantColumns}
-                  dataSource={product.variants}
-                  rowKey="id"
-                  pagination={false}
-                />
+                <div>
+                  <div
+                    style={{
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      alignItems: 'center',
+                      marginBottom: 16,
+                      flexWrap: 'wrap',
+                      gap: 12,
+                    }}
+                  >
+                    <div>
+                      <Text strong style={{ fontSize: '15px' }}>
+                        SKU Variants & Pricing ({product.variants.length})
+                      </Text>
+                      <Text type="secondary" style={{ display: 'block', fontSize: '12px' }}>
+                        Add, edit, or remove variants directly here without navigating away.
+                      </Text>
+                    </div>
+                    <Button
+                      type="primary"
+                      icon={<PlusOutlined />}
+                      onClick={handleOpenAddVariant}
+                    >
+                      Add Variant
+                    </Button>
+                  </div>
+                  <Table
+                    columns={variantColumns}
+                    dataSource={product.variants}
+                    rowKey="id"
+                    pagination={false}
+                  />
+                </div>
               ),
             },
             {
@@ -868,39 +1185,116 @@ export const ProductDetailPage: React.FC = () => {
             },
             {
               key: 'specifications',
-              label: `Technical Specs (${product.attributes.length})`,
-              children:
-                product.attributes.length === 0 ? (
-                  <Empty
-                    description="No technical specifications assigned yet"
-                    style={{ padding: '24px 0' }}
+              label: (
+                <Space size={4}>
+                  <span>Technical Specs</span>
+                  <Badge
+                    count={product.attributes?.length || 0}
+                    style={{ backgroundColor: '#f1f5f9', color: '#475569', boxShadow: 'none' }}
+                  />
+                </Space>
+              ),
+              children: (
+                <div>
+                  <div
+                    style={{
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      alignItems: 'center',
+                      marginBottom: 20,
+                      flexWrap: 'wrap',
+                      gap: 12,
+                    }}
                   >
+                    <div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                        <Text strong style={{ fontSize: '15px' }}>
+                          Category Specifications & Technical Attributes
+                        </Text>
+                        {product.category_name ? (
+                          <Tag color="blue">{product.category_name}</Tag>
+                        ) : (
+                          <Tag>Default Global</Tag>
+                        )}
+                      </div>
+                      <Text type="secondary" style={{ fontSize: '12px' }}>
+                        Select specification values directly below. New custom options can also be added directly in each dropdown.
+                      </Text>
+                    </div>
                     <Button
                       type="primary"
-                      icon={<EditOutlined />}
-                      onClick={() => navigate(`/products/${product.id}/edit`)}
+                      icon={<SaveOutlined />}
+                      loading={saveSpecsMutation.isPending}
+                      onClick={() => specsForm.submit()}
                     >
-                      Add Technical Specifications
+                      Save Specifications
                     </Button>
-                  </Empty>
-                ) : (
-                  <div>
-                    <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 16 }}>
-                      <Button
-                        icon={<EditOutlined />}
-                        onClick={() => navigate(`/products/${product.id}/edit`)}
-                      >
-                        Edit Specifications
-                      </Button>
-                    </div>
-                    <Table
-                      columns={specColumns}
-                      dataSource={product.attributes}
-                      rowKey="id"
-                      pagination={false}
-                    />
                   </div>
-                ),
+
+                  {isAttributesLoading ? (
+                    <div style={{ textAlign: 'center', padding: '36px' }}>
+                      <Spin tip="Loading specifications..." />
+                    </div>
+                  ) : !categoryAttributes || categoryAttributes.length === 0 ? (
+                    <Empty description="No specifications configured for this category." />
+                  ) : (
+                    <Form
+                      form={specsForm}
+                      layout="vertical"
+                      onFinish={(values) => saveSpecsMutation.mutate(values)}
+                    >
+                      <Row gutter={[24, 16]}>
+                        {categoryAttributes.map((attrDef) => (
+                          <Col xs={24} sm={12} md={8} key={attrDef.id}>
+                            {attrDef.data_type === 'single_choice' ? (
+                              <Form.Item
+                                label={<Text strong>{attrDef.name}</Text>}
+                                name={`attr_${attrDef.id}`}
+                                rules={[{ required: attrDef.is_required, message: `Please select ${attrDef.name}` }]}
+                              >
+                                <DynamicChoiceSelect
+                                  attrDef={attrDef}
+                                  onAddOption={handleAddNewOption}
+                                />
+                              </Form.Item>
+                            ) : attrDef.data_type === 'boolean' ? (
+                              <Form.Item
+                                name={`attr_${attrDef.id}`}
+                                valuePropName="checked"
+                                style={{ marginTop: '28px' }}
+                              >
+                                <Checkbox>
+                                  <Text strong>{attrDef.name}</Text>
+                                </Checkbox>
+                              </Form.Item>
+                            ) : attrDef.data_type === 'decimal' || attrDef.data_type === 'number' ? (
+                              <Form.Item
+                                label={
+                                  <Text strong>
+                                    {attrDef.name} {attrDef.unit_label ? `(${attrDef.unit_label})` : ''}
+                                  </Text>
+                                }
+                                name={`attr_${attrDef.id}`}
+                                rules={[{ required: attrDef.is_required, message: `Please enter ${attrDef.name}` }]}
+                              >
+                                <InputNumber style={{ width: '100%' }} placeholder="e.g. 18, 210" />
+                              </Form.Item>
+                            ) : (
+                              <Form.Item
+                                label={<Text strong>{attrDef.name}</Text>}
+                                name={`attr_${attrDef.id}`}
+                                rules={[{ required: attrDef.is_required, message: `Please enter ${attrDef.name}` }]}
+                              >
+                                <Input placeholder={`Enter ${attrDef.name}`} />
+                              </Form.Item>
+                            )}
+                          </Col>
+                        ))}
+                      </Row>
+                    </Form>
+                  )}
+                </div>
+              ),
             },
             {
               key: 'movements',
@@ -1051,6 +1445,136 @@ export const ProductDetailPage: React.FC = () => {
           </Form.Item>
           <Form.Item name="caption" label="Caption / Description (Optional)">
             <Input placeholder="e.g. Front View, Polish Tone, Side Angle" />
+          </Form.Item>
+        </Form>
+      </Modal>
+
+      {/* Add / Edit Variant Modal */}
+      <Modal
+        title={
+          <div>
+            <Title level={4} style={{ margin: 0 }}>
+              {editingVariant ? 'Edit SKU Variant' : 'Add New Variant'}
+            </Title>
+            <Text type="secondary" style={{ fontSize: '13px' }}>
+              {editingVariant
+                ? `Update details, pricing, and status for variant "${editingVariant.sku}"`
+                : `Create a new SKU variant for "${product.name}"`}
+            </Text>
+          </div>
+        }
+        open={variantModalOpen}
+        onCancel={() => setVariantModalOpen(false)}
+        onOk={() => variantForm.submit()}
+        confirmLoading={createVariantMutation.isPending || updateVariantMutation.isPending}
+        width={650}
+        okText={editingVariant ? 'Update Variant' : 'Add Variant'}
+      >
+        <Form
+          form={variantForm}
+          layout="vertical"
+          onFinish={(values) => {
+            const payload = {
+              sku: values.sku?.trim(),
+              variant_name: values.variant_name?.trim() || null,
+              unit_id: values.unit_id || null,
+              purchase_price: Number(values.purchase_price || 0),
+              selling_price: Number(values.selling_price || 0),
+              mrp: values.mrp !== undefined && values.mrp !== null && values.mrp !== '' ? Number(values.mrp) : null,
+              barcode: values.barcode?.trim() || null,
+              is_active: Boolean(values.is_active),
+            }
+            if (editingVariant) {
+              updateVariantMutation.mutate(payload)
+            } else {
+              createVariantMutation.mutate(payload)
+            }
+          }}
+        >
+          <Row gutter={16}>
+            <Col span={12}>
+              <Form.Item
+                label="Variant Name"
+                name="variant_name"
+              >
+                <Input placeholder="e.g. Standard, Teak Finish, Large" />
+              </Form.Item>
+            </Col>
+            <Col span={12}>
+              <Form.Item
+                label="SKU Code"
+                name="sku"
+                rules={[{ required: true, message: 'Please enter SKU code' }]}
+              >
+                <Input placeholder="e.g. CRYS-STG-0006-01" />
+              </Form.Item>
+            </Col>
+          </Row>
+
+          <Row gutter={16}>
+            <Col span={12}>
+              <Form.Item label="Unit of Measurement" name="unit_id">
+                <Select
+                  placeholder="Select unit"
+                  allowClear
+                  options={units?.map((u: any) => ({
+                    label: `${u.name} (${u.code})`,
+                    value: u.id,
+                  })) || []}
+                />
+              </Form.Item>
+            </Col>
+            <Col span={12}>
+              <Form.Item label="Barcode (Optional)" name="barcode">
+                <Input placeholder="Barcode or EAN" />
+              </Form.Item>
+            </Col>
+          </Row>
+
+          <Row gutter={16}>
+            <Col span={8}>
+              <Form.Item label="Purchase Price" name="purchase_price">
+                <InputNumber
+                  min={0}
+                  prefix="₹"
+                  style={{ width: '100%' }}
+                  placeholder="0.00"
+                />
+              </Form.Item>
+            </Col>
+            <Col span={8}>
+              <Form.Item
+                label="Selling Price"
+                name="selling_price"
+                rules={[{ required: true, message: 'Please enter selling price' }]}
+              >
+                <InputNumber
+                  min={0}
+                  prefix="₹"
+                  style={{ width: '100%' }}
+                  placeholder="0.00"
+                />
+              </Form.Item>
+            </Col>
+            <Col span={8}>
+              <Form.Item label="MRP" name="mrp">
+                <InputNumber
+                  min={0}
+                  prefix="₹"
+                  style={{ width: '100%' }}
+                  placeholder="Optional"
+                />
+              </Form.Item>
+            </Col>
+          </Row>
+
+          <Form.Item
+            label="Active Status"
+            name="is_active"
+            valuePropName="checked"
+            initialValue={true}
+          >
+            <Switch checkedChildren="Active" unCheckedChildren="Inactive" />
           </Form.Item>
         </Form>
       </Modal>

@@ -12,6 +12,7 @@ from app.modules.catalogue.schemas import (
     ProductUpdate,
     ImageUpdate,
     ImageUrlCreate,
+    VariantIn,
 )
 from app.modules.catalogue import service
 
@@ -173,6 +174,42 @@ async def archive_product(
 ):
     await service.archive_product(db, user.current_tenant_id, user.id, product_id)
     return {"message": "Product archived successfully"}
+
+
+# ==================== PRODUCT VARIANTS ====================
+
+@router.post("/{product_id}/variants", status_code=status.HTTP_201_CREATED)
+async def create_variant(
+    product_id: uuid.UUID,
+    data: VariantIn,
+    user: User = Depends(require_role("admin")),
+    db: AsyncSession = Depends(get_db),
+):
+    v = await service.add_product_variant(db, user.current_tenant_id, user.id, product_id, data)
+    return {"data": v.model_dump(), "message": "Variant created successfully"}
+
+
+@router.put("/{product_id}/variants/{variant_id}")
+async def update_variant(
+    product_id: uuid.UUID,
+    variant_id: uuid.UUID,
+    data: VariantIn,
+    user: User = Depends(require_role("admin")),
+    db: AsyncSession = Depends(get_db),
+):
+    v = await service.update_single_variant(db, user.current_tenant_id, user.id, product_id, variant_id, data)
+    return {"data": v.model_dump(), "message": "Variant updated successfully"}
+
+
+@router.delete("/{product_id}/variants/{variant_id}")
+async def delete_variant(
+    product_id: uuid.UUID,
+    variant_id: uuid.UUID,
+    user: User = Depends(require_role("admin")),
+    db: AsyncSession = Depends(get_db),
+):
+    await service.delete_single_variant(db, user.current_tenant_id, user.id, product_id, variant_id)
+    return {"message": "Variant deleted successfully"}
 
 
 @router.post("/{product_id}/images")

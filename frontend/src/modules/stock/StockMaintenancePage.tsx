@@ -41,7 +41,7 @@ import {
   DownOutlined,
   EnvironmentOutlined,
 } from '@ant-design/icons'
-import { useSearchParams, useNavigate } from 'react-router-dom'
+import { useSearchParams, useNavigate, Link } from 'react-router-dom'
 import {
   stockApi,
   StockMappingResponse,
@@ -1417,52 +1417,67 @@ export const StockMaintenancePage: React.FC = () => {
                   {/* Left: Thumbnail + Title + SKU */}
                   <Col xs={24} md={10} lg={9}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
-                      {productImage ? (
-                        <img
-                          src={productImage}
-                          alt={mappingData?.product.name || ''}
-                          style={{
-                            width: 80,
-                            height: 64,
-                            borderRadius: 8,
-                            objectFit: 'cover',
-                            border: '1px solid #e2e8f0',
-                            background: '#f8fafc',
-                          }}
-                        />
-                      ) : (
-                        <div
-                          style={{
-                            width: 80,
-                            height: 64,
-                            borderRadius: 8,
-                            background: '#f1f5f9',
-                            border: '1px solid #e2e8f0',
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                            fontSize: 26,
-                          }}
-                        >
-                          🛋️
-                        </div>
-                      )}
+                      <Link
+                        to={`/products/${mappingData?.product.id || selectedProductId}`}
+                        style={{ display: 'flex', alignItems: 'center', flexShrink: 0 }}
+                        title={`View details for ${mappingData?.product.name || 'product'}`}
+                      >
+                        {productImage ? (
+                          <img
+                            src={productImage}
+                            alt={mappingData?.product.name || ''}
+                            style={{
+                              width: 80,
+                              height: 64,
+                              borderRadius: 8,
+                              objectFit: 'cover',
+                              border: '1px solid #e2e8f0',
+                              background: '#f8fafc',
+                              cursor: 'pointer',
+                              transition: 'opacity 0.2s',
+                            }}
+                          />
+                        ) : (
+                          <div
+                            style={{
+                              width: 80,
+                              height: 64,
+                              borderRadius: 8,
+                              background: '#f1f5f9',
+                              border: '1px solid #e2e8f0',
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              fontSize: 26,
+                              cursor: 'pointer',
+                            }}
+                          >
+                            🛋️
+                          </div>
+                        )}
+                      </Link>
                       <div style={{ minWidth: 0, flex: 1 }}>
-                        <div
-                          style={{
-                            fontSize: '15.5px',
-                            fontWeight: 700,
-                            color: '#0f172a',
-                            lineHeight: 1.3,
-                            marginBottom: 4,
-                            overflow: 'hidden',
-                            textOverflow: 'ellipsis',
-                            whiteSpace: 'nowrap',
-                          }}
-                          title={mappingData?.product.name}
+                        <Link
+                          to={`/products/${mappingData?.product.id || selectedProductId}`}
+                          style={{ textDecoration: 'none' }}
+                          title={`View details for ${mappingData?.product.name || 'product'}`}
                         >
-                          {mappingData?.product.name}
-                        </div>
+                          <div
+                            style={{
+                              fontSize: '15.5px',
+                              fontWeight: 700,
+                              color: '#1677ff',
+                              lineHeight: 1.3,
+                              marginBottom: 4,
+                              overflow: 'hidden',
+                              textOverflow: 'ellipsis',
+                              whiteSpace: 'nowrap',
+                              cursor: 'pointer',
+                            }}
+                          >
+                            {mappingData?.product.name}
+                          </div>
+                        </Link>
                         {primarySku && (
                           <Tag
                             style={{

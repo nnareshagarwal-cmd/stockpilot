@@ -41,6 +41,7 @@ from app.modules.catalogue.schemas import (
     ProductDetailResponse,
     ProductSearchItem,
     VariantResponse,
+    VariantIn,
     AttributeValueDetail,
     ProductImageResponse,
     CsvPreviewResponse,
@@ -997,6 +998,177 @@ async def delete_product_image(
     await delete_file(img.file_url)
     await db.delete(img)
     await log_audit(db, tenant_id, user_id, "DELETE", "product_image", image_id, "Deleted product image")
+    await db.commit()
+
+
+# ==================== PRODUCT VARIANTS ====================
+
+async def add_product_variant(
+    db: AsyncSession,
+    tenant_id: uuid.UUID,
+    user_id: uuid.UUID,
+    product_id: uuid.UUID,
+    data: VariantIn,
+) -> VariantResponse:
+    res = await db.execute(select(Product).where(Product.id == product_id, Product.tenant_id == tenant_id))
+    product = res.scalar_one_or_none()
+    if not product:
+        raise NotFoundException("Product", str(product_id))
+
+    dup_res = await db.execute(
+        select(ProductVariant).where(ProductVariant.tenant_id == tenant_id, ProductVariant.sku == data.sku.strip())
+    )
+    if dup_res.scalar_one_or_none():
+        raise ConflictException(f"SKU '{data.sku}' already exists")
+
+    new_v = ProductVariant(
+        tenant_id=tenant_id,
+        product_id=product.id,
+        sku=data.sku.strip(),
+        variant_name=data.variant_name,
+        barcode=data.barcode,
+        barcode_type=data.barcode_type,
+        unit_id=data.unit_id,
+        purchase_price=data.purchase_price,
+        selling_price=data.selling_price,
+        mrp=data.mrp,
+        reorder_point=data.reorder_point or Decimal("0"),
+        reorder_quantity=data.reorder_quantity or Decimal("0"),
+        weight_kg=data.weight_kg,
+        is_active=data.is_active,
+        created_by=user_id,
+    )
+    db.add(new_v)
+    await db.flush()
+
+    db.add(PriceHistory(
+        tenant_id=tenant_id, variant_id=new_v.id, price_type="purchase",
+        old_price=None, new_price=data.purchase_price, changed_by=user_id, reason="Added variant"
+    ))
+    db.add(PriceHistory(
+        tenant_id=tenant_id, variant_id=new_v.id, price_type="selling",
+        old_price=None, new_price=data.selling_price, changed_by=user_id, reason="Added variant"
+    ))
+    await log_audit(db, tenant_id, user_id, "CREATE", "product_variant", new_v.id, f"Added variant {new_v.sku}")
+    await db.commit()
+    await db.refresh(new_v)
+    return VariantResponse.model_validate(new_v)
+
+
+async def update_single_variant(
+    db: AsyncSession,
+    tenant_id: uuid.UUID,
+    user_id: uuid.UUID,
+    product_id: uuid.UUID,
+    variant_id: uuid.UUID,
+    data: VariantIn,
+) -> VariantResponse:
+    res = await db.execute(
+        select(ProductVariant).where(
+            ProductVariant.id == variant_id,
+            ProductVariant.product_id == product_id,
+            ProductVariant.tenant_id == tenant_id,
+        )
+    )
+    v = res.scalar_one_or_none()
+    if not v:
+        raise NotFoundException("ProductVariant", str(variant_id))
+
+    if data.sku.strip() != v.sku:
+        dup_res = await db.execute(
+            select(ProductVariant).where(
+                ProductVariant.tenant_id == tenant_id,
+                ProductVariant.sku == data.sku.strip(),
+                ProductVariant.id != variant_id,
+            )
+        )
+        if dup_res.scalar_one_or_none():
+            raise ConflictException(f"SKU '{data.sku}' already exists")
+
+    if v.purchase_price != data.purchase_price:
+        db.add(PriceHistory(
+            tenant_id=tenant_id, variant_id=v.id, price_type="purchase",
+            old_price=v.purchase_price, new_price=data.purchase_price,
+            changed_by=user_id, reason="Price update"
+        ))
+    if v.selling_price != data.selling_price:
+        db.add(PriceHistory(
+            tenant_id=tenant_id, variant_id=v.id, price_type="selling",
+            old_price=v.selling_price, new_price=data.selling_price,
+            changed_by=user_id, reason="Price update"
+        ))
+    if v.mrp != data.mrp:
+        db.add(PriceHistory(
+            tenant_id=tenant_id, variant_id=v.id, price_type="mrp",
+            old_price=v.mrp, new_price=data.mrp or Decimal("0.00"),
+            changed_by=user_id, reason="Price update"
+        ))
+
+    v.sku = data.sku.strip()
+    v.variant_name = data.variant_name
+    v.barcode = data.barcode
+    v.barcode_type = data.barcode_type
+    v.unit_id = data.unit_id
+    v.purchase_price = data.purchase_price
+    v.selling_price = data.selling_price
+    v.mrp = data.mrp
+    if data.reorder_point is not None:
+        v.reorder_point = data.reorder_point
+    if data.reorder_quantity is not None:
+        v.reorder_quantity = data.reorder_quantity
+    if data.weight_kg is not None:
+        v.weight_kg = data.weight_kg
+    v.is_active = data.is_active
+    v.updated_by = user_id
+
+    await log_audit(db, tenant_id, user_id, "UPDATE", "product_variant", v.id, f"Updated variant {v.sku}")
+    await db.commit()
+    await db.refresh(v)
+    return VariantResponse.model_validate(v)
+
+
+async def delete_single_variant(
+    db: AsyncSession,
+    tenant_id: uuid.UUID,
+    user_id: uuid.UUID,
+    product_id: uuid.UUID,
+    variant_id: uuid.UUID,
+):
+    res = await db.execute(
+        select(ProductVariant).where(
+            ProductVariant.id == variant_id,
+            ProductVariant.product_id == product_id,
+            ProductVariant.tenant_id == tenant_id,
+        )
+    )
+    v = res.scalar_one_or_none()
+    if not v:
+        raise NotFoundException("ProductVariant", str(variant_id))
+
+    count_res = await db.execute(
+        select(func.count(ProductVariant.id)).where(
+            ProductVariant.product_id == product_id,
+            ProductVariant.tenant_id == tenant_id,
+        )
+    )
+    if count_res.scalar_one() <= 1:
+        raise ConflictException("A product must have at least one variant. Cannot delete the only variant.")
+
+    from app.modules.stock.models import StockBalance
+    stock_res = await db.execute(
+        select(func.coalesce(func.sum(StockBalance.quantity), 0)).where(
+            StockBalance.variant_id == variant_id,
+            StockBalance.tenant_id == tenant_id,
+        )
+    )
+    current_stock = stock_res.scalar_one()
+    if current_stock > 0:
+        raise ConflictException(f"Cannot delete variant with {current_stock} units in stock. Please transfer or adjust stock first, or mark variant as Inactive.")
+
+    await db.execute(delete(PriceHistory).where(PriceHistory.variant_id == variant_id))
+    await db.execute(delete(StockBalance).where(StockBalance.variant_id == variant_id))
+    await db.delete(v)
+    await log_audit(db, tenant_id, user_id, "DELETE", "product_variant", variant_id, f"Deleted variant {v.sku}")
     await db.commit()
 
 

@@ -179,11 +179,12 @@ export const ProductFormPage: React.FC = () => {
     },
   })
 
-  // Dynamic attributes query based on selected category
+  // Dynamic attributes query based on selected category (prefers subcategory if selected, inherits parent)
+  const effectiveCategoryForAttrs = selectedSubcategoryId || selectedCategoryId
   const { data: attributes } = useQuery({
-    queryKey: ['attributes-by-category', selectedCategoryId],
+    queryKey: ['attributes-by-category', effectiveCategoryForAttrs],
     queryFn: async () => {
-      const url = selectedCategoryId ? `/attributes?category_id=${selectedCategoryId}` : '/attributes'
+      const url = effectiveCategoryForAttrs ? `/attributes?category_id=${effectiveCategoryForAttrs}` : '/attributes'
       const res = await apiClient.get<ApiResponse<AttributeDefinition[]>>(url)
       return res.data.data
     },

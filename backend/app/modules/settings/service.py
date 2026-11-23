@@ -796,6 +796,13 @@ async def create_attribute(
     db.add(attr)
     await db.flush()
 
+    if data.category_id:
+        db.add(CategoryAttributeMapping(
+            tenant_id=tenant_id,
+            category_id=data.category_id,
+            attribute_id=attr.id,
+        ))
+
     if data.options:
         for opt in data.options:
             db.add(AttributeOption(attribute_id=attr.id, value=opt.value, sort_order=opt.sort_order))
@@ -830,7 +837,25 @@ async def get_attributes(
     )
 
     if category_id is not None:
-        # Attributes mapped in category_attribute_mappings for target_category_ids
+        # Check if there are explicitly mapped attributes for target_category_ids
+        has_mappings_res = await db.execute(
+            select(func.count(CategoryAttributeMapping.id)).where(
+                CategoryAttributeMapping.tenant_id == tenant_id,
+                CategoryAttributeMapping.category_id.in_(list(target_category_ids)),
+            )
+        )
+        has_mappings = (has_mappings_res.scalar() or 0) > 0
+
+        # Also check legacy AttributeDefinition.category_id
+        if not has_mappings:
+            legacy_count_res = await db.execute(
+                select(func.count(AttributeDefinition.id)).where(
+                    AttributeDefinition.tenant_id == tenant_id,
+                    AttributeDefinition.category_id.in_(list(target_category_ids)),
+                )
+            )
+            has_mappings = (legacy_count_res.scalar() or 0) > 0
+
         subq_mapped = (
             select(CategoryAttributeMapping.attribute_id)
             .where(
@@ -838,20 +863,23 @@ async def get_attributes(
                 CategoryAttributeMapping.category_id.in_(list(target_category_ids)),
             )
         )
-        # Attributes mapped to any category at all (to exclude attributes dedicated to other categories)
-        subq_all_mapped = (
-            select(CategoryAttributeMapping.attribute_id)
-            .where(CategoryAttributeMapping.tenant_id == tenant_id)
-        )
 
-        query = query.where(
-            (AttributeDefinition.id.in_(subq_mapped))
-            | (AttributeDefinition.category_id.in_(list(target_category_ids)))
-            | (
+        if has_mappings:
+            # If the category has mapped specifications, strictly return ONLY those specifications
+            query = query.where(
+                (AttributeDefinition.id.in_(subq_mapped))
+                | (AttributeDefinition.category_id.in_(list(target_category_ids)))
+            )
+        else:
+            # Fallback for unconfigured categories: return default global unmapped attributes
+            subq_all_mapped = (
+                select(CategoryAttributeMapping.attribute_id)
+                .where(CategoryAttributeMapping.tenant_id == tenant_id)
+            )
+            query = query.where(
                 AttributeDefinition.category_id.is_(None)
                 & AttributeDefinition.id.not_in(subq_all_mapped)
             )
-        )
 
     if is_active is not None:
         query = query.where(AttributeDefinition.is_active == is_active)
@@ -1011,6 +1039,17 @@ async def sync_category_attributes(
                 attribute_id=aid,
             ))
 
+    # Clear direct category_id on any attribute assigned to this category that is no longer selected
+    legacy_unlinked = await db.execute(
+        select(AttributeDefinition).where(
+            AttributeDefinition.tenant_id == tenant_id,
+            AttributeDefinition.category_id == category_id,
+            AttributeDefinition.id.not_in(attribute_ids) if attribute_ids else True,
+        )
+    )
+    for la in legacy_unlinked.scalars().all():
+        la.category_id = None
+
     await log_audit(db, tenant_id, user_id, "UPDATE", "category_attributes", category_id, f"Synced specifications for category {cat.name}")
     await db.commit()
     return await get_category_attribute_mappings(db, tenant_id, category_id)
@@ -1067,6 +1106,17 @@ async def unlink_category_attribute(
     )
     for m in existing.scalars().all():
         await db.delete(m)
+
+    # Also clear direct category_id on AttributeDefinition if pointing to this category
+    attr_res = await db.execute(
+        select(AttributeDefinition).where(
+            AttributeDefinition.id == attribute_id,
+            AttributeDefinition.tenant_id == tenant_id,
+        )
+    )
+    attr = attr_res.scalar_one_or_none()
+    if attr and attr.category_id == category_id:
+        attr.category_id = None
 
     await log_audit(db, tenant_id, user_id, "UNLINK", "category_attributes", category_id, f"Unlinked attribute from category {category_id}")
     await db.commit()
