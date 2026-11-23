@@ -26,6 +26,7 @@ from app.modules.settings.schemas import (
     ListOfValuesCreate,
     ListOfValuesUpdate,
     ListOfValuesResponse,
+    CategoryAttributesSyncRequest,
 )
 
 router = APIRouter(tags=["Master Data & Settings"])
@@ -512,6 +513,51 @@ async def archive_attribute(
 ):
     await service.archive_attribute(db, user.current_tenant_id, user.id, attr_id)
     return {"message": "Attribute archived successfully"}
+
+
+# ---------------- Category Specifications Mapping ----------------
+@router.get("/categories/{category_id}/attributes")
+async def get_category_attributes(
+    category_id: uuid.UUID,
+    tenant_id: uuid.UUID = Depends(get_tenant_id),
+    db: AsyncSession = Depends(get_db),
+):
+    mappings = await service.get_category_attribute_mappings(db, tenant_id, category_id)
+    return {"data": [m.model_dump() for m in mappings]}
+
+
+@router.post("/categories/{category_id}/attributes")
+async def sync_category_attributes(
+    category_id: uuid.UUID,
+    data: CategoryAttributesSyncRequest,
+    user: User = Depends(require_role("admin")),
+    db: AsyncSession = Depends(get_db),
+):
+    mappings = await service.sync_category_attributes(db, user.current_tenant_id, user.id, category_id, data.attribute_ids)
+    return {"data": [m.model_dump() for m in mappings], "message": "Category specifications synced successfully"}
+
+
+@router.post("/categories/{category_id}/attributes/{attribute_id}")
+async def link_category_attribute(
+    category_id: uuid.UUID,
+    attribute_id: uuid.UUID,
+    user: User = Depends(require_role("admin")),
+    db: AsyncSession = Depends(get_db),
+):
+    await service.link_category_attribute(db, user.current_tenant_id, user.id, category_id, attribute_id)
+    return {"message": "Attribute linked to category successfully"}
+
+
+@router.delete("/categories/{category_id}/attributes/{attribute_id}")
+async def unlink_category_attribute(
+    category_id: uuid.UUID,
+    attribute_id: uuid.UUID,
+    user: User = Depends(require_role("admin")),
+    db: AsyncSession = Depends(get_db),
+):
+    await service.unlink_category_attribute(db, user.current_tenant_id, user.id, category_id, attribute_id)
+    return {"message": "Attribute unlinked from category successfully"}
+
 
 
 # ---------------- List of Values (LOV) ----------------

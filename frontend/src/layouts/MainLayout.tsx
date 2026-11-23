@@ -41,6 +41,7 @@ export const MainLayout: React.FC = () => {
   const getSubMenuKey = (pathname: string): string | null => {
     if (pathname.startsWith('/stock')) return 'inventory-sub'
     if (
+      pathname.startsWith('/settings/attributes') ||
       pathname.startsWith('/settings/lookups') ||
       pathname.startsWith('/settings/business') ||
       pathname.startsWith('/settings/users')
@@ -157,6 +158,11 @@ export const MainLayout: React.FC = () => {
       icon: <SettingOutlined />,
       label: 'Settings',
       children: [
+        {
+          key: '/settings/attributes',
+          icon: <ApartmentOutlined />,
+          label: 'Category Specifications',
+        },
         {
           key: '/settings/lookups',
           icon: <DatabaseOutlined />,

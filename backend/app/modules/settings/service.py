@@ -1,7 +1,8 @@
 import uuid
 import io
 import csv
-from typing import List, Optional, Dict, Any
+from typing import List, Optional, Dict, Any, Set
+from collections import defaultdict
 from fastapi import UploadFile
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, and_, func, case
@@ -22,6 +23,7 @@ from app.modules.settings.models import (
     AttributeDefinition,
     AttributeOption,
     ListOfValues,
+    CategoryAttributeMapping,
 )
 from app.modules.settings.schemas import (
     CategoryCreate,
@@ -49,6 +51,8 @@ from app.modules.settings.schemas import (
     ListOfValuesCreate,
     ListOfValuesUpdate,
     ListOfValuesResponse,
+    CategoryAttributeMappingResponse,
+    CategoryAttributesSyncRequest,
 )
 from app.modules.audit.service import log_audit
 
@@ -810,6 +814,15 @@ async def get_attributes(
     category_id: Optional[uuid.UUID] = None,
     is_active: Optional[bool] = None,
 ) -> List[AttributeDefinitionResponse]:
+    target_category_ids: Set[uuid.UUID] = set()
+    if category_id is not None:
+        target_category_ids.add(category_id)
+        # Check if category has a parent
+        cat_res = await db.execute(select(Category).where(Category.id == category_id, Category.tenant_id == tenant_id))
+        cat = cat_res.scalar_one_or_none()
+        if cat and cat.parent_id:
+            target_category_ids.add(cat.parent_id)
+
     query = (
         select(AttributeDefinition)
         .options(selectinload(AttributeDefinition.options))
@@ -817,16 +830,247 @@ async def get_attributes(
     )
 
     if category_id is not None:
-        # Include category-specific AND global attributes (where category_id is NULL)
-        query = query.where(
-            (AttributeDefinition.category_id == category_id) | (AttributeDefinition.category_id.is_(None))
+        # Attributes mapped in category_attribute_mappings for target_category_ids
+        subq_mapped = (
+            select(CategoryAttributeMapping.attribute_id)
+            .where(
+                CategoryAttributeMapping.tenant_id == tenant_id,
+                CategoryAttributeMapping.category_id.in_(list(target_category_ids)),
+            )
         )
+        # Attributes mapped to any category at all (to exclude attributes dedicated to other categories)
+        subq_all_mapped = (
+            select(CategoryAttributeMapping.attribute_id)
+            .where(CategoryAttributeMapping.tenant_id == tenant_id)
+        )
+
+        query = query.where(
+            (AttributeDefinition.id.in_(subq_mapped))
+            | (AttributeDefinition.category_id.in_(list(target_category_ids)))
+            | (
+                AttributeDefinition.category_id.is_(None)
+                & AttributeDefinition.id.not_in(subq_all_mapped)
+            )
+        )
+
     if is_active is not None:
         query = query.where(AttributeDefinition.is_active == is_active)
 
     query = query.order_by(AttributeDefinition.sort_order, AttributeDefinition.name)
     result = await db.execute(query)
-    return [AttributeDefinitionResponse.model_validate(a) for a in result.scalars().all()]
+    attrs = result.scalars().all()
+
+    # Pre-fetch category mappings for all returned attributes
+    attr_ids = [a.id for a in attrs]
+    mappings_by_attr = defaultdict(list)
+    if attr_ids:
+        map_res = await db.execute(
+            select(CategoryAttributeMapping)
+            .where(
+                CategoryAttributeMapping.tenant_id == tenant_id,
+                CategoryAttributeMapping.attribute_id.in_(attr_ids),
+            )
+        )
+        for m in map_res.scalars().all():
+            mappings_by_attr[m.attribute_id].append(m.category_id)
+
+    resp_list: List[AttributeDefinitionResponse] = []
+    for a in attrs:
+        resp = AttributeDefinitionResponse.model_validate(a)
+        cats = set(mappings_by_attr.get(a.id, []))
+        if a.category_id:
+            cats.add(a.category_id)
+        resp.category_ids = list(cats)
+        resp_list.append(resp)
+
+    return resp_list
+
+
+async def get_category_attribute_mappings(
+    db: AsyncSession,
+    tenant_id: uuid.UUID,
+    category_id: uuid.UUID,
+) -> List[CategoryAttributeMappingResponse]:
+    # Check category
+    cat_res = await db.execute(select(Category).where(Category.id == category_id, Category.tenant_id == tenant_id))
+    cat = cat_res.scalar_one_or_none()
+    if not cat:
+        raise NotFoundException("Category", str(category_id))
+
+    # Target category ids: this category + its parent (if subcategory)
+    target_ids = [category_id]
+    parent_cat = None
+    if cat.parent_id:
+        target_ids.append(cat.parent_id)
+        p_res = await db.execute(select(Category).where(Category.id == cat.parent_id, Category.tenant_id == tenant_id))
+        parent_cat = p_res.scalar_one_or_none()
+
+    # Fetch mappings for target_ids
+    map_res = await db.execute(
+        select(CategoryAttributeMapping)
+        .options(selectinload(CategoryAttributeMapping.attribute))
+        .where(
+            CategoryAttributeMapping.tenant_id == tenant_id,
+            CategoryAttributeMapping.category_id.in_(target_ids),
+        )
+    )
+    mappings = map_res.scalars().all()
+
+    # Also check legacy AttributeDefinition.category_id
+    legacy_attrs_res = await db.execute(
+        select(AttributeDefinition)
+        .where(
+            AttributeDefinition.tenant_id == tenant_id,
+            AttributeDefinition.category_id.in_(target_ids),
+        )
+    )
+    legacy_attrs = legacy_attrs_res.scalars().all()
+
+    results: List[CategoryAttributeMappingResponse] = []
+    seen_attr_ids = set()
+
+    for m in mappings:
+        if not m.attribute:
+            continue
+        is_inh = (m.category_id != category_id)
+        inh_name = parent_cat.name if is_inh and parent_cat else None
+        results.append(
+            CategoryAttributeMappingResponse(
+                id=m.id,
+                category_id=m.category_id,
+                category_name=cat.name if not is_inh else (parent_cat.name if parent_cat else ""),
+                attribute_id=m.attribute_id,
+                attribute_name=m.attribute.name,
+                attribute_code=m.attribute.code,
+                data_type=m.attribute.data_type,
+                unit_label=m.attribute.unit_label,
+                is_inherited=is_inh,
+                inherited_from_category_name=inh_name,
+                created_at=m.created_at,
+            )
+        )
+        seen_attr_ids.add(m.attribute_id)
+
+    for la in legacy_attrs:
+        if la.id in seen_attr_ids:
+            continue
+        is_inh = (la.category_id != category_id)
+        inh_name = parent_cat.name if is_inh and parent_cat else None
+        results.append(
+            CategoryAttributeMappingResponse(
+                id=uuid.uuid4(),
+                category_id=la.category_id,
+                category_name=cat.name if not is_inh else (parent_cat.name if parent_cat else ""),
+                attribute_id=la.id,
+                attribute_name=la.name,
+                attribute_code=la.code,
+                data_type=la.data_type,
+                unit_label=la.unit_label,
+                is_inherited=is_inh,
+                inherited_from_category_name=inh_name,
+                created_at=None,
+            )
+        )
+        seen_attr_ids.add(la.id)
+
+    return results
+
+
+async def sync_category_attributes(
+    db: AsyncSession,
+    tenant_id: uuid.UUID,
+    user_id: uuid.UUID,
+    category_id: uuid.UUID,
+    attribute_ids: List[uuid.UUID],
+) -> List[CategoryAttributeMappingResponse]:
+    # Check category
+    cat_res = await db.execute(select(Category).where(Category.id == category_id, Category.tenant_id == tenant_id))
+    cat = cat_res.scalar_one_or_none()
+    if not cat:
+        raise NotFoundException("Category", str(category_id))
+
+    # Delete existing direct mappings for this category
+    existing_mappings = await db.execute(
+        select(CategoryAttributeMapping).where(
+            CategoryAttributeMapping.tenant_id == tenant_id,
+            CategoryAttributeMapping.category_id == category_id,
+        )
+    )
+    for m in existing_mappings.scalars().all():
+        await db.delete(m)
+
+    # Insert new mappings
+    for aid in attribute_ids:
+        attr_res = await db.execute(
+            select(AttributeDefinition).where(AttributeDefinition.id == aid, AttributeDefinition.tenant_id == tenant_id)
+        )
+        if attr_res.scalar_one_or_none():
+            db.add(CategoryAttributeMapping(
+                tenant_id=tenant_id,
+                category_id=category_id,
+                attribute_id=aid,
+            ))
+
+    await log_audit(db, tenant_id, user_id, "UPDATE", "category_attributes", category_id, f"Synced specifications for category {cat.name}")
+    await db.commit()
+    return await get_category_attribute_mappings(db, tenant_id, category_id)
+
+
+async def link_category_attribute(
+    db: AsyncSession,
+    tenant_id: uuid.UUID,
+    user_id: uuid.UUID,
+    category_id: uuid.UUID,
+    attribute_id: uuid.UUID,
+) -> None:
+    # Check category & attribute
+    cat_res = await db.execute(select(Category).where(Category.id == category_id, Category.tenant_id == tenant_id))
+    cat = cat_res.scalar_one_or_none()
+    if not cat:
+        raise NotFoundException("Category", str(category_id))
+
+    attr_res = await db.execute(select(AttributeDefinition).where(AttributeDefinition.id == attribute_id, AttributeDefinition.tenant_id == tenant_id))
+    attr = attr_res.scalar_one_or_none()
+    if not attr:
+        raise NotFoundException("AttributeDefinition", str(attribute_id))
+
+    existing = await db.execute(
+        select(CategoryAttributeMapping).where(
+            CategoryAttributeMapping.tenant_id == tenant_id,
+            CategoryAttributeMapping.category_id == category_id,
+            CategoryAttributeMapping.attribute_id == attribute_id,
+        )
+    )
+    if not existing.scalar_one_or_none():
+        db.add(CategoryAttributeMapping(
+            tenant_id=tenant_id,
+            category_id=category_id,
+            attribute_id=attribute_id,
+        ))
+        await log_audit(db, tenant_id, user_id, "LINK", "category_attributes", category_id, f"Linked attribute {attr.name} to category {cat.name}")
+        await db.commit()
+
+
+async def unlink_category_attribute(
+    db: AsyncSession,
+    tenant_id: uuid.UUID,
+    user_id: uuid.UUID,
+    category_id: uuid.UUID,
+    attribute_id: uuid.UUID,
+) -> None:
+    existing = await db.execute(
+        select(CategoryAttributeMapping).where(
+            CategoryAttributeMapping.tenant_id == tenant_id,
+            CategoryAttributeMapping.category_id == category_id,
+            CategoryAttributeMapping.attribute_id == attribute_id,
+        )
+    )
+    for m in existing.scalars().all():
+        await db.delete(m)
+
+    await log_audit(db, tenant_id, user_id, "UNLINK", "category_attributes", category_id, f"Unlinked attribute from category {category_id}")
+    await db.commit()
+
 
 
 async def get_attribute(db: AsyncSession, tenant_id: uuid.UUID, attr_id: uuid.UUID) -> AttributeDefinition:

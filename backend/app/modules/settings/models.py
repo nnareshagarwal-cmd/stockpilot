@@ -8,6 +8,8 @@ from sqlalchemy import (
     Text,
     Integer,
     Numeric,
+    DateTime,
+    func,
     UniqueConstraint,
     CheckConstraint,
 )
@@ -188,4 +190,21 @@ class ListOfValues(Base, TimestampMixin, TenantMixin):
     __table_args__ = (
         UniqueConstraint("tenant_id", "category", "value", name="uq_lov_tenant_category_value"),
     )
+
+
+class CategoryAttributeMapping(Base, TenantMixin):
+    __tablename__ = "category_attribute_mappings"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    category_id = Column(UUID(as_uuid=True), ForeignKey("categories.id", ondelete="CASCADE"), nullable=False, index=True)
+    attribute_id = Column(UUID(as_uuid=True), ForeignKey("attribute_definitions.id", ondelete="CASCADE"), nullable=False, index=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "category_id", "attribute_id", name="uq_cat_attr_tenant_cat_attr"),
+    )
+
+    category = relationship("Category", backref="attribute_mappings")
+    attribute = relationship("AttributeDefinition", backref="category_mappings")
+
 

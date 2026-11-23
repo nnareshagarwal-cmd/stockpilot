@@ -133,7 +133,22 @@ export interface AttributeDefinition {
   description?: string
   sort_order: number
   is_active: boolean
+  category_ids?: string[]
   options?: AttributeOption[]
+}
+
+export interface CategoryAttributeMapping {
+  id: string
+  category_id: string
+  category_name?: string
+  attribute_id: string
+  attribute_name?: string
+  attribute_code?: string
+  data_type?: string
+  unit_label?: string
+  is_inherited: boolean
+  inherited_from_category_name?: string
+  created_at?: string
 }
 
 export interface VariantDetail {
@@ -199,6 +214,12 @@ export interface ProductDetail {
   tax_rate_percent?: number
   is_active: boolean
   created_at: string
+  height_mm?: number
+  width_mm?: number
+  depth_mm?: number
+  height_inches?: number
+  width_inches?: number
+  depth_inches?: number
   variants: VariantDetail[]
   attributes: AttributeValueDetail[]
   images: ProductImage[]

@@ -25,6 +25,8 @@ import {
   ArrowLeftOutlined,
   SaveOutlined,
   ThunderboltOutlined,
+  ColumnWidthOutlined,
+  SwapOutlined,
 } from '@ant-design/icons'
 import { useNavigate, useParams, useLocation } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
@@ -424,6 +426,12 @@ export const ProductFormPage: React.FC = () => {
         brand_id: existingProduct.brand_id,
         model: existingProduct.model,
         tax_rate_id: existingProduct.tax_rate_id,
+        height_mm: existingProduct.height_mm !== null && existingProduct.height_mm !== undefined ? Number(existingProduct.height_mm) : undefined,
+        width_mm: existingProduct.width_mm !== null && existingProduct.width_mm !== undefined ? Number(existingProduct.width_mm) : undefined,
+        depth_mm: existingProduct.depth_mm !== null && existingProduct.depth_mm !== undefined ? Number(existingProduct.depth_mm) : undefined,
+        height_inches: existingProduct.height_inches !== null && existingProduct.height_inches !== undefined ? Number(existingProduct.height_inches) : undefined,
+        width_inches: existingProduct.width_inches !== null && existingProduct.width_inches !== undefined ? Number(existingProduct.width_inches) : undefined,
+        depth_inches: existingProduct.depth_inches !== null && existingProduct.depth_inches !== undefined ? Number(existingProduct.depth_inches) : undefined,
       })
       setSelectedCategoryId(existingProduct.category_id)
       setSelectedSubcategoryId(existingProduct.subcategory_id)
@@ -561,6 +569,28 @@ export const ProductFormPage: React.FC = () => {
     )
   }
 
+  const handleDimensionChange = (field: 'height' | 'width' | 'depth', unit: 'mm' | 'in', val: number | null) => {
+    if (val === null || val === undefined || isNaN(val)) {
+      form.setFieldsValue({
+        [`${field}_mm`]: null,
+        [`${field}_inches`]: null,
+      })
+      return
+    }
+
+    if (unit === 'mm') {
+      const inVal = Number((val / 25.4).toFixed(2))
+      form.setFieldsValue({
+        [`${field}_inches`]: inVal,
+      })
+    } else {
+      const mmVal = Number((val * 25.4).toFixed(1))
+      form.setFieldsValue({
+        [`${field}_mm`]: mmVal,
+      })
+    }
+  }
+
   const onFinish = (values: any) => {
     // Validate variants have SKUs
     for (const v of variants) {
@@ -599,6 +629,12 @@ export const ProductFormPage: React.FC = () => {
       brand_id: values.brand_id || null,
       model: values.model || null,
       tax_rate_id: values.tax_rate_id || null,
+      height_mm: values.height_mm !== undefined && values.height_mm !== null && values.height_mm !== '' ? Number(values.height_mm) : null,
+      width_mm: values.width_mm !== undefined && values.width_mm !== null && values.width_mm !== '' ? Number(values.width_mm) : null,
+      depth_mm: values.depth_mm !== undefined && values.depth_mm !== null && values.depth_mm !== '' ? Number(values.depth_mm) : null,
+      height_inches: values.height_inches !== undefined && values.height_inches !== null && values.height_inches !== '' ? Number(values.height_inches) : null,
+      width_inches: values.width_inches !== undefined && values.width_inches !== null && values.width_inches !== '' ? Number(values.width_inches) : null,
+      depth_inches: values.depth_inches !== undefined && values.depth_inches !== null && values.depth_inches !== '' ? Number(values.depth_inches) : null,
       variants: variants.map((v) => ({
         id: v.id || undefined,
         sku: v.sku.trim(),
@@ -869,6 +905,122 @@ export const ProductFormPage: React.FC = () => {
           <Form.Item label="Description" name="description">
             <TextArea rows={3} placeholder="Detailed product specifications, features, or notes..." />
           </Form.Item>
+        </Card>
+
+        {/* Section: Product Dimensions (Dual-unit: mm & inches) */}
+        <Card
+          title={
+            <Space>
+              <ColumnWidthOutlined style={{ color: '#1677ff' }} />
+              <span>Product Dimensions (Height, Width, Depth)</span>
+            </Space>
+          }
+          style={{ borderRadius: '12px', marginBottom: '24px' }}
+        >
+          <Paragraph type="secondary" style={{ marginBottom: '16px' }}>
+            Enter dimensions in either <strong>Millimeters (mm)</strong> or <strong>Inches (in)</strong>. The system automatically converts and saves both units in real-time.
+          </Paragraph>
+
+          <Row gutter={[24, 16]}>
+            {/* Width */}
+            <Col xs={24} md={8}>
+              <Card
+                size="small"
+                style={{ background: '#f8fafc', borderRadius: '8px', border: '1px solid #e2e8f0' }}
+                title={<Text strong style={{ color: '#0f172a' }}>Width (W)</Text>}
+              >
+                <Row gutter={8}>
+                  <Col span={12}>
+                    <Form.Item label="Width (mm)" name="width_mm" style={{ marginBottom: 0 }}>
+                      <InputNumber
+                        min={0}
+                        style={{ width: '100%' }}
+                        placeholder="e.g. 1200"
+                        onChange={(val) => handleDimensionChange('width', 'mm', val)}
+                      />
+                    </Form.Item>
+                  </Col>
+                  <Col span={12}>
+                    <Form.Item label="Width (in)" name="width_inches" style={{ marginBottom: 0 }}>
+                      <InputNumber
+                        min={0}
+                        step={0.1}
+                        style={{ width: '100%' }}
+                        placeholder="e.g. 47.24"
+                        onChange={(val) => handleDimensionChange('width', 'in', val)}
+                      />
+                    </Form.Item>
+                  </Col>
+                </Row>
+              </Card>
+            </Col>
+
+            {/* Depth */}
+            <Col xs={24} md={8}>
+              <Card
+                size="small"
+                style={{ background: '#f8fafc', borderRadius: '8px', border: '1px solid #e2e8f0' }}
+                title={<Text strong style={{ color: '#0f172a' }}>Depth (D)</Text>}
+              >
+                <Row gutter={8}>
+                  <Col span={12}>
+                    <Form.Item label="Depth (mm)" name="depth_mm" style={{ marginBottom: 0 }}>
+                      <InputNumber
+                        min={0}
+                        style={{ width: '100%' }}
+                        placeholder="e.g. 800"
+                        onChange={(val) => handleDimensionChange('depth', 'mm', val)}
+                      />
+                    </Form.Item>
+                  </Col>
+                  <Col span={12}>
+                    <Form.Item label="Depth (in)" name="depth_inches" style={{ marginBottom: 0 }}>
+                      <InputNumber
+                        min={0}
+                        step={0.1}
+                        style={{ width: '100%' }}
+                        placeholder="e.g. 31.50"
+                        onChange={(val) => handleDimensionChange('depth', 'in', val)}
+                      />
+                    </Form.Item>
+                  </Col>
+                </Row>
+              </Card>
+            </Col>
+
+            {/* Height */}
+            <Col xs={24} md={8}>
+              <Card
+                size="small"
+                style={{ background: '#f8fafc', borderRadius: '8px', border: '1px solid #e2e8f0' }}
+                title={<Text strong style={{ color: '#0f172a' }}>Height (H)</Text>}
+              >
+                <Row gutter={8}>
+                  <Col span={12}>
+                    <Form.Item label="Height (mm)" name="height_mm" style={{ marginBottom: 0 }}>
+                      <InputNumber
+                        min={0}
+                        style={{ width: '100%' }}
+                        placeholder="e.g. 750"
+                        onChange={(val) => handleDimensionChange('height', 'mm', val)}
+                      />
+                    </Form.Item>
+                  </Col>
+                  <Col span={12}>
+                    <Form.Item label="Height (in)" name="height_inches" style={{ marginBottom: 0 }}>
+                      <InputNumber
+                        min={0}
+                        step={0.1}
+                        style={{ width: '100%' }}
+                        placeholder="e.g. 29.53"
+                        onChange={(val) => handleDimensionChange('height', 'in', val)}
+                      />
+                    </Form.Item>
+                  </Col>
+                </Row>
+              </Card>
+            </Col>
+          </Row>
         </Card>
 
         {/* Section 2: SKU Variants & Pricing */}

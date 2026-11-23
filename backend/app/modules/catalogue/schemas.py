@@ -42,6 +42,12 @@ class ProductCreate(BaseModel):
     brand_id: Optional[uuid.UUID] = None
     model: Optional[str] = Field(None, max_length=255)
     tax_rate_id: Optional[uuid.UUID] = None
+    height_mm: Optional[Decimal] = None
+    width_mm: Optional[Decimal] = None
+    depth_mm: Optional[Decimal] = None
+    height_inches: Optional[Decimal] = None
+    width_inches: Optional[Decimal] = None
+    depth_inches: Optional[Decimal] = None
     variants: List[VariantIn] = []
     attributes: List[AttributeValueIn] = []
 
@@ -55,6 +61,12 @@ class ProductUpdate(BaseModel):
     model: Optional[str] = Field(None, max_length=255)
     tax_rate_id: Optional[uuid.UUID] = None
     is_active: Optional[bool] = None
+    height_mm: Optional[Decimal] = None
+    width_mm: Optional[Decimal] = None
+    depth_mm: Optional[Decimal] = None
+    height_inches: Optional[Decimal] = None
+    width_inches: Optional[Decimal] = None
+    depth_inches: Optional[Decimal] = None
     variants: Optional[List[VariantIn]] = None
     attributes: Optional[List[AttributeValueIn]] = None
 
@@ -130,6 +142,12 @@ class ProductDetailResponse(BaseModel):
     tax_rate_percent: Optional[Decimal] = None
     is_active: bool
     created_at: datetime
+    height_mm: Optional[Decimal] = None
+    width_mm: Optional[Decimal] = None
+    depth_mm: Optional[Decimal] = None
+    height_inches: Optional[Decimal] = None
+    width_inches: Optional[Decimal] = None
+    depth_inches: Optional[Decimal] = None
     variants: List[VariantResponse] = []
     attributes: List[AttributeValueDetail] = []
     images: List[ProductImageResponse] = []

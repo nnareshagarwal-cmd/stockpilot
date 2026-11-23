@@ -120,6 +120,22 @@ async def validate_cross_tenant_foreign_keys(
                     raise NotFoundException("AttributeOption", str(oid))
 
 
+def _calc_dimensions(val_mm: Optional[Decimal], val_in: Optional[Decimal]) -> tuple[Optional[Decimal], Optional[Decimal]]:
+    mm = val_mm
+    inch = val_in
+    if mm is not None and inch is None:
+        try:
+            inch = Decimal(str(round(float(mm) / 25.4, 2)))
+        except Exception:
+            pass
+    elif inch is not None and mm is None:
+        try:
+            mm = Decimal(str(round(float(inch) * 25.4, 1)))
+        except Exception:
+            pass
+    return mm, inch
+
+
 async def create_product(
     db: AsyncSession,
     tenant_id: uuid.UUID,
@@ -150,6 +166,10 @@ async def create_product(
         if dup_res.scalar_one_or_none():
             raise ConflictException(f"SKU '{sku}' already exists")
 
+    h_mm, h_in = _calc_dimensions(data.height_mm, data.height_inches)
+    w_mm, w_in = _calc_dimensions(data.width_mm, data.width_inches)
+    d_mm, d_in = _calc_dimensions(data.depth_mm, data.depth_inches)
+
     # 3. Create product
     product = Product(
         tenant_id=tenant_id,
@@ -160,8 +180,15 @@ async def create_product(
         brand_id=data.brand_id,
         model=data.model,
         tax_rate_id=data.tax_rate_id,
+        height_mm=h_mm,
+        width_mm=w_mm,
+        depth_mm=d_mm,
+        height_inches=h_in,
+        width_inches=w_in,
+        depth_inches=d_in,
         created_by=user_id,
     )
+
     db.add(product)
     await db.flush()
 
@@ -366,6 +393,12 @@ async def get_product_detail(db: AsyncSession, tenant_id: uuid.UUID, product_id:
         tax_rate_percent=product.tax_rate.rate if product.tax_rate else None,
         is_active=product.is_active,
         created_at=product.created_at,
+        height_mm=product.height_mm,
+        width_mm=product.width_mm,
+        depth_mm=product.depth_mm,
+        height_inches=product.height_inches,
+        width_inches=product.width_inches,
+        depth_inches=product.depth_inches,
         variants=variants_resp,
         attributes=attrs_resp,
         images=images_resp,
@@ -416,6 +449,18 @@ async def update_product(
         product.tax_rate_id = data.tax_rate_id
     if data.is_active is not None:
         product.is_active = data.is_active
+    if "height_mm" in data.model_fields_set or "height_inches" in data.model_fields_set:
+        h_mm, h_in = _calc_dimensions(data.height_mm, data.height_inches)
+        product.height_mm = h_mm
+        product.height_inches = h_in
+    if "width_mm" in data.model_fields_set or "width_inches" in data.model_fields_set:
+        w_mm, w_in = _calc_dimensions(data.width_mm, data.width_inches)
+        product.width_mm = w_mm
+        product.width_inches = w_in
+    if "depth_mm" in data.model_fields_set or "depth_inches" in data.model_fields_set:
+        d_mm, d_in = _calc_dimensions(data.depth_mm, data.depth_inches)
+        product.depth_mm = d_mm
+        product.depth_inches = d_in
     product.updated_by = user_id
 
     # Handle variants if provided

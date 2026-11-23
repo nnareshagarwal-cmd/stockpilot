@@ -18,6 +18,9 @@ import {
   Popconfirm,
   Badge,
   Spin,
+  Modal,
+  Form,
+  InputNumber,
 } from 'antd'
 import {
   ArrowLeftOutlined,
@@ -30,6 +33,7 @@ import {
   ShopOutlined,
   InboxOutlined,
   ApartmentOutlined,
+  ColumnWidthOutlined,
 } from '@ant-design/icons'
 import { useParams, useNavigate, useLocation } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
@@ -45,6 +49,66 @@ export const ProductDetailPage: React.FC = () => {
   const location = useLocation()
   const queryClient = useQueryClient()
   const [activeTab, setActiveTab] = useState('overview')
+  const [dimModalOpen, setDimModalOpen] = useState(false)
+  const [dimForm] = Form.useForm()
+
+  const handleOpenDimensionModal = () => {
+    if (product) {
+      dimForm.setFieldsValue({
+        height_mm: product.height_mm !== null && product.height_mm !== undefined ? Number(product.height_mm) : undefined,
+        width_mm: product.width_mm !== null && product.width_mm !== undefined ? Number(product.width_mm) : undefined,
+        depth_mm: product.depth_mm !== null && product.depth_mm !== undefined ? Number(product.depth_mm) : undefined,
+        height_inches: product.height_inches !== null && product.height_inches !== undefined ? Number(product.height_inches) : undefined,
+        width_inches: product.width_inches !== null && product.width_inches !== undefined ? Number(product.width_inches) : undefined,
+        depth_inches: product.depth_inches !== null && product.depth_inches !== undefined ? Number(product.depth_inches) : undefined,
+      })
+    }
+    setDimModalOpen(true)
+  }
+
+  const handleDimensionChange = (field: 'height' | 'width' | 'depth', unit: 'mm' | 'in', val: number | null) => {
+    if (val === null || val === undefined || isNaN(val)) {
+      dimForm.setFieldsValue({
+        [`${field}_mm`]: null,
+        [`${field}_inches`]: null,
+      })
+      return
+    }
+
+    if (unit === 'mm') {
+      const inVal = Number((val / 25.4).toFixed(2))
+      dimForm.setFieldsValue({
+        [`${field}_inches`]: inVal,
+      })
+    } else {
+      const mmVal = Number((val * 25.4).toFixed(1))
+      dimForm.setFieldsValue({
+        [`${field}_mm`]: mmVal,
+      })
+    }
+  }
+
+  const updateDimensionsMutation = useMutation({
+    mutationFn: async (values: any) => {
+      const payload = {
+        height_mm: values.height_mm !== undefined && values.height_mm !== null && values.height_mm !== '' ? Number(values.height_mm) : null,
+        width_mm: values.width_mm !== undefined && values.width_mm !== null && values.width_mm !== '' ? Number(values.width_mm) : null,
+        depth_mm: values.depth_mm !== undefined && values.depth_mm !== null && values.depth_mm !== '' ? Number(values.depth_mm) : null,
+        height_inches: values.height_inches !== undefined && values.height_inches !== null && values.height_inches !== '' ? Number(values.height_inches) : null,
+        width_inches: values.width_inches !== undefined && values.width_inches !== null && values.width_inches !== '' ? Number(values.width_inches) : null,
+        depth_inches: values.depth_inches !== undefined && values.depth_inches !== null && values.depth_inches !== '' ? Number(values.depth_inches) : null,
+      }
+      await apiClient.put(`/products/${id}`, payload)
+    },
+    onSuccess: () => {
+      message.success('Dimensions updated successfully')
+      setDimModalOpen(false)
+      queryClient.invalidateQueries({ queryKey: ['product-detail', id] })
+    },
+    onError: (err: any) => {
+      message.error(err.response?.data?.error?.message || 'Failed to update dimensions')
+    },
+  })
 
   const handleBack = () => {
     const returnSearch = (location.state as any)?.returnSearch
@@ -462,6 +526,217 @@ export const ProductDetailPage: React.FC = () => {
               ),
             },
             {
+              key: 'dimensions',
+              label: (
+                <Space size={4}>
+                  <ColumnWidthOutlined />
+                  <span>Dimensions</span>
+                  {(product.height_mm || product.width_mm || product.depth_mm) && (
+                    <Tag color="blue" style={{ marginLeft: 4, fontSize: '11px', borderRadius: '10px' }}>
+                      Configured
+                    </Tag>
+                  )}
+                </Space>
+              ),
+              children: !(product.height_mm || product.width_mm || product.depth_mm || product.height_inches || product.width_inches || product.depth_inches) ? (
+                <Empty
+                  description="No dimensions configured for this product yet"
+                  style={{ padding: '32px 0' }}
+                >
+                  <Button
+                    type="primary"
+                    icon={<EditOutlined />}
+                    onClick={handleOpenDimensionModal}
+                  >
+                    Set Product Dimensions
+                  </Button>
+                </Empty>
+              ) : (
+                <div>
+                  {/* Top Bar with summary and edit button */}
+                  <div
+                    style={{
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      alignItems: 'center',
+                      background: '#f8fafc',
+                      padding: '16px 20px',
+                      borderRadius: '10px',
+                      marginBottom: 24,
+                      border: '1px solid #e2e8f0',
+                      flexWrap: 'wrap',
+                      gap: '12px',
+                    }}
+                  >
+                    <div>
+                      <Text type="secondary" style={{ display: 'block', fontSize: '12px', marginBottom: 4 }}>
+                        Overall Dimensions (W × D × H):
+                      </Text>
+                      <Space size={12} wrap>
+                        <Tag color="blue" style={{ fontSize: '14px', padding: '4px 10px', fontWeight: 600 }}>
+                          {product.width_mm || '—'} W × {product.depth_mm || '—'} D × {product.height_mm || '—'} H mm
+                        </Tag>
+                        <Tag color="geekblue" style={{ fontSize: '14px', padding: '4px 10px', fontWeight: 600 }}>
+                          {product.width_inches || '—'}" W × {product.depth_inches || '—'}" D × {product.height_inches || '—'}" H
+                        </Tag>
+                      </Space>
+                    </div>
+
+                    <Button
+                      type="primary"
+                      icon={<EditOutlined />}
+                      onClick={handleOpenDimensionModal}
+                    >
+                      Edit Dimensions
+                    </Button>
+                  </div>
+
+                  {/* 3 Metric Cards */}
+                  <Row gutter={[20, 20]} style={{ marginBottom: 24 }}>
+                    <Col xs={24} md={8}>
+                      <Card
+                        style={{
+                          borderRadius: '12px',
+                          border: '1px solid #e2e8f0',
+                          boxShadow: '0 1px 3px rgba(0,0,0,0.05)',
+                        }}
+                      >
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                          <Text type="secondary" style={{ fontSize: '13px', fontWeight: 600 }}>
+                            WIDTH (Side-to-Side)
+                          </Text>
+                          <Tag color="blue">W</Tag>
+                        </div>
+                        <div style={{ fontSize: '28px', fontWeight: 700, color: '#0f172a', marginBottom: 4 }}>
+                          {product.width_mm ? `${Number(product.width_mm).toLocaleString()} mm` : '—'}
+                        </div>
+                        <Text type="secondary" style={{ fontSize: '14px' }}>
+                          {product.width_inches ? `${product.width_inches} inches` : '—'}
+                          {product.width_mm && ` (${(Number(product.width_mm) / 10).toFixed(1)} cm)`}
+                        </Text>
+                      </Card>
+                    </Col>
+
+                    <Col xs={24} md={8}>
+                      <Card
+                        style={{
+                          borderRadius: '12px',
+                          border: '1px solid #e2e8f0',
+                          boxShadow: '0 1px 3px rgba(0,0,0,0.05)',
+                        }}
+                      >
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                          <Text type="secondary" style={{ fontSize: '13px', fontWeight: 600 }}>
+                            DEPTH (Front-to-Back)
+                          </Text>
+                          <Tag color="purple">D</Tag>
+                        </div>
+                        <div style={{ fontSize: '28px', fontWeight: 700, color: '#0f172a', marginBottom: 4 }}>
+                          {product.depth_mm ? `${Number(product.depth_mm).toLocaleString()} mm` : '—'}
+                        </div>
+                        <Text type="secondary" style={{ fontSize: '14px' }}>
+                          {product.depth_inches ? `${product.depth_inches} inches` : '—'}
+                          {product.depth_mm && ` (${(Number(product.depth_mm) / 10).toFixed(1)} cm)`}
+                        </Text>
+                      </Card>
+                    </Col>
+
+                    <Col xs={24} md={8}>
+                      <Card
+                        style={{
+                          borderRadius: '12px',
+                          border: '1px solid #e2e8f0',
+                          boxShadow: '0 1px 3px rgba(0,0,0,0.05)',
+                        }}
+                      >
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                          <Text type="secondary" style={{ fontSize: '13px', fontWeight: 600 }}>
+                            HEIGHT (Floor-to-Top)
+                          </Text>
+                          <Tag color="green">H</Tag>
+                        </div>
+                        <div style={{ fontSize: '28px', fontWeight: 700, color: '#0f172a', marginBottom: 4 }}>
+                          {product.height_mm ? `${Number(product.height_mm).toLocaleString()} mm` : '—'}
+                        </div>
+                        <Text type="secondary" style={{ fontSize: '14px' }}>
+                          {product.height_inches ? `${product.height_inches} inches` : '—'}
+                          {product.height_mm && ` (${(Number(product.height_mm) / 10).toFixed(1)} cm)`}
+                        </Text>
+                      </Card>
+                    </Col>
+                  </Row>
+
+                  {/* Dual-Unit Specifications Comparison Table */}
+                  <Card title="Dimension Specifications Matrix" size="small" style={{ borderRadius: '10px' }}>
+                    <Table
+                      pagination={false}
+                      size="middle"
+                      columns={[
+                        {
+                          title: 'Dimension',
+                          dataIndex: 'name',
+                          key: 'name',
+                          render: (text: string, r: any) => (
+                            <Space>
+                              <Text strong>{text}</Text>
+                              <Tag color={r.tagColor}>{r.symbol}</Tag>
+                            </Space>
+                          ),
+                        },
+                        {
+                          title: 'Millimeters (mm)',
+                          dataIndex: 'mm',
+                          key: 'mm',
+                          render: (val: any) => (val ? <Text strong>{val} mm</Text> : '—'),
+                        },
+                        {
+                          title: 'Centimeters (cm)',
+                          dataIndex: 'cm',
+                          key: 'cm',
+                          render: (val: any) => (val ? `${val} cm` : '—'),
+                        },
+                        {
+                          title: 'Inches (in)',
+                          dataIndex: 'inches',
+                          key: 'inches',
+                          render: (val: any) => (val ? <Text style={{ color: '#1677ff', fontWeight: 600 }}>{val} in</Text> : '—'),
+                        },
+                      ]}
+                      dataSource={[
+                        {
+                          key: 'width',
+                          name: 'Width (Side to Side)',
+                          symbol: 'W',
+                          tagColor: 'blue',
+                          mm: product.width_mm,
+                          cm: product.width_mm ? (Number(product.width_mm) / 10).toFixed(1) : null,
+                          inches: product.width_inches,
+                        },
+                        {
+                          key: 'depth',
+                          name: 'Depth (Front to Back)',
+                          symbol: 'D',
+                          tagColor: 'purple',
+                          mm: product.depth_mm,
+                          cm: product.depth_mm ? (Number(product.depth_mm) / 10).toFixed(1) : null,
+                          inches: product.depth_inches,
+                        },
+                        {
+                          key: 'height',
+                          name: 'Height (Floor to Top)',
+                          symbol: 'H',
+                          tagColor: 'green',
+                          mm: product.height_mm,
+                          cm: product.height_mm ? (Number(product.height_mm) / 10).toFixed(1) : null,
+                          inches: product.height_inches,
+                        },
+                      ]}
+                    />
+                  </Card>
+                </div>
+              ),
+            },
+            {
               key: 'specifications',
               label: `Technical Specs (${product.attributes.length})`,
               children:
@@ -588,6 +863,99 @@ export const ProductDetailPage: React.FC = () => {
           ]}
         />
       </Card>
+
+      {/* Modal: Quick Edit Dimensions */}
+      <Modal
+        title={
+          <div>
+            <Title level={4} style={{ margin: 0 }}>
+              Edit Product Dimensions
+            </Title>
+            <Text type="secondary" style={{ fontSize: '13px' }}>
+              Dual unit auto-conversion (mm ↔ inches). Enter either unit, both are updated and saved.
+            </Text>
+          </div>
+        }
+        open={dimModalOpen}
+        onCancel={() => setDimModalOpen(false)}
+        onOk={() => dimForm.submit()}
+        confirmLoading={updateDimensionsMutation.isPending}
+        width={650}
+      >
+        <Form form={dimForm} layout="vertical" onFinish={(val) => updateDimensionsMutation.mutate(val)}>
+          <Row gutter={16}>
+            <Col span={12}>
+              <Form.Item label="Width (mm)" name="width_mm">
+                <InputNumber
+                  min={0}
+                  style={{ width: '100%' }}
+                  placeholder="Width in mm (e.g. 1200)"
+                  onChange={(val) => handleDimensionChange('width', 'mm', val)}
+                />
+              </Form.Item>
+            </Col>
+            <Col span={12}>
+              <Form.Item label="Width (inches)" name="width_inches">
+                <InputNumber
+                  min={0}
+                  step={0.1}
+                  style={{ width: '100%' }}
+                  placeholder="Width in inches (e.g. 47.24)"
+                  onChange={(val) => handleDimensionChange('width', 'in', val)}
+                />
+              </Form.Item>
+            </Col>
+          </Row>
+
+          <Row gutter={16}>
+            <Col span={12}>
+              <Form.Item label="Depth (mm)" name="depth_mm">
+                <InputNumber
+                  min={0}
+                  style={{ width: '100%' }}
+                  placeholder="Depth in mm (e.g. 800)"
+                  onChange={(val) => handleDimensionChange('depth', 'mm', val)}
+                />
+              </Form.Item>
+            </Col>
+            <Col span={12}>
+              <Form.Item label="Depth (inches)" name="depth_inches">
+                <InputNumber
+                  min={0}
+                  step={0.1}
+                  style={{ width: '100%' }}
+                  placeholder="Depth in inches (e.g. 31.50)"
+                  onChange={(val) => handleDimensionChange('depth', 'in', val)}
+                />
+              </Form.Item>
+            </Col>
+          </Row>
+
+          <Row gutter={16}>
+            <Col span={12}>
+              <Form.Item label="Height (mm)" name="height_mm">
+                <InputNumber
+                  min={0}
+                  style={{ width: '100%' }}
+                  placeholder="Height in mm (e.g. 750)"
+                  onChange={(val) => handleDimensionChange('height', 'mm', val)}
+                />
+              </Form.Item>
+            </Col>
+            <Col span={12}>
+              <Form.Item label="Height (inches)" name="height_inches">
+                <InputNumber
+                  min={0}
+                  step={0.1}
+                  style={{ width: '100%' }}
+                  placeholder="Height in inches (e.g. 29.53)"
+                  onChange={(val) => handleDimensionChange('height', 'in', val)}
+                />
+              </Form.Item>
+            </Col>
+          </Row>
+        </Form>
+      </Modal>
     </div>
   )
 }

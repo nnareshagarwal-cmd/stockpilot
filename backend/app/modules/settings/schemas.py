@@ -1,4 +1,5 @@
 import uuid
+from datetime import datetime
 from decimal import Decimal
 from typing import Optional, List, Literal
 from pydantic import BaseModel, Field
@@ -269,10 +270,34 @@ class AttributeDefinitionResponse(BaseModel):
     description: Optional[str] = None
     sort_order: int
     is_active: bool
+    category_ids: List[uuid.UUID] = []
     options: List[AttributeOptionResponse] = []
 
     class Config:
         from_attributes = True
+
+
+# ---------------- Category Attribute Mappings ----------------
+class CategoryAttributeMappingResponse(BaseModel):
+    id: uuid.UUID
+    category_id: uuid.UUID
+    category_name: Optional[str] = None
+    attribute_id: uuid.UUID
+    attribute_name: Optional[str] = None
+    attribute_code: Optional[str] = None
+    data_type: Optional[str] = None
+    unit_label: Optional[str] = None
+    is_inherited: bool = False
+    inherited_from_category_name: Optional[str] = None
+    created_at: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True
+
+
+class CategoryAttributesSyncRequest(BaseModel):
+    attribute_ids: List[uuid.UUID]
+
 
 
 # ---------------- List of Values (Generic Dropdowns) ----------------
