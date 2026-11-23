@@ -138,3 +138,70 @@ async def test_update_attribute_category_mapping(client: AsyncClient, admin_auth
     assert mapping_res2.status_code == 200
     mapped_ids2 = [m["attribute_id"] for m in mapping_res2.json()["data"]]
     assert attr_id not in mapped_ids2
+
+
+@pytest.mark.asyncio
+async def test_create_and_update_attribute_multiple_categories(client: AsyncClient, admin_auth):
+    headers = admin_auth["headers"]
+
+    # 1. Create two categories
+    c1 = await client.post("/api/v1/categories", headers=headers, json={"name": "Living Room Multi", "code": "LR_MULTI"})
+    assert c1.status_code == 201
+    cat1_id = c1.json()["data"]["id"]
+
+    c2 = await client.post("/api/v1/categories", headers=headers, json={"name": "Bedroom Multi", "code": "BR_MULTI"})
+    assert c2.status_code == 201
+    cat2_id = c2.json()["data"]["id"]
+
+    c3 = await client.post("/api/v1/categories", headers=headers, json={"name": "Dining Multi", "code": "DN_MULTI"})
+    assert c3.status_code == 201
+    cat3_id = c3.json()["data"]["id"]
+
+    # 2. Create attribute mapped to Cat1 & Cat2
+    create_res = await client.post(
+        "/api/v1/attributes",
+        headers=headers,
+        json={
+            "name": "Wood Finish Multi",
+            "code": "wood_finish_multi",
+            "data_type": "text",
+            "category_ids": [cat1_id, cat2_id],
+        },
+    )
+    assert create_res.status_code == 201, create_res.text
+    attr = create_res.json()["data"]
+    attr_id = attr["id"]
+    assert set(attr["category_ids"]) == {cat1_id, cat2_id}
+
+    # Verify both categories show the attribute mapped
+    map1 = await client.get(f"/api/v1/categories/{cat1_id}/attributes", headers=headers)
+    assert attr_id in [m["attribute_id"] for m in map1.json()["data"]]
+
+    map2 = await client.get(f"/api/v1/categories/{cat2_id}/attributes", headers=headers)
+    assert attr_id in [m["attribute_id"] for m in map2.json()["data"]]
+
+    # 3. Update attribute categories: remove Cat1, keep Cat2, add Cat3
+    update_res = await client.put(
+        f"/api/v1/attributes/{attr_id}",
+        headers=headers,
+        json={
+            "name": "Wood Finish Multi",
+            "code": "wood_finish_multi",
+            "data_type": "text",
+            "category_ids": [cat2_id, cat3_id],
+        },
+    )
+    assert update_res.status_code == 200, update_res.text
+    updated = update_res.json()["data"]
+    assert set(updated["category_ids"]) == {cat2_id, cat3_id}
+
+    # Verify Cat1 no longer has the attribute, Cat2 & Cat3 have it
+    map1_after = await client.get(f"/api/v1/categories/{cat1_id}/attributes", headers=headers)
+    assert attr_id not in [m["attribute_id"] for m in map1_after.json()["data"]]
+
+    map2_after = await client.get(f"/api/v1/categories/{cat2_id}/attributes", headers=headers)
+    assert attr_id in [m["attribute_id"] for m in map2_after.json()["data"]]
+
+    map3_after = await client.get(f"/api/v1/categories/{cat3_id}/attributes", headers=headers)
+    assert attr_id in [m["attribute_id"] for m in map3_after.json()["data"]]
+

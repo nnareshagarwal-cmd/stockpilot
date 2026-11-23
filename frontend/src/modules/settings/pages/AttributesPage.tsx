@@ -203,11 +203,17 @@ export const AttributesPage: React.FC = () => {
     setEditingAttr(attr || null)
     if (attr) {
       setDataType(attr.data_type)
+      const mappedCats: string[] =
+        attr.category_ids && attr.category_ids.length > 0
+          ? attr.category_ids
+          : attr.category_id
+          ? [attr.category_id]
+          : []
       form.setFieldsValue({
         name: attr.name,
         code: attr.code,
         data_type: attr.data_type,
-        category_id: attr.category_id || undefined,
+        category_ids: mappedCats,
         is_required: attr.is_required,
         is_searchable: attr.is_searchable,
         is_filterable: attr.is_filterable,
@@ -224,7 +230,7 @@ export const AttributesPage: React.FC = () => {
         is_searchable: true,
         sort_order: 0,
         options: [],
-        category_id: undefined,
+        category_ids: activeCategoryId ? [activeCategoryId] : [],
       })
     }
     setModalOpen(true)
@@ -748,9 +754,15 @@ export const AttributesPage: React.FC = () => {
           form={form}
           layout="vertical"
           onFinish={(val) => {
+            const catIds = Array.isArray(val.category_ids)
+              ? val.category_ids
+              : val.category_ids
+              ? [val.category_ids]
+              : []
             const payload = {
               ...val,
-              category_id: val.category_id || null,
+              category_ids: catIds,
+              category_id: catIds.length > 0 ? catIds[0] : null,
               options:
                 val.data_type === 'single_choice' || val.data_type === 'multiple_choice'
                   ? (val.options || [])
@@ -776,12 +788,14 @@ export const AttributesPage: React.FC = () => {
             <Select options={dataTypes} onChange={(val) => setDataType(val)} />
           </Form.Item>
 
-          <Form.Item label="Category (Leave empty for Global)" name="category_id">
+          <Form.Item label="Categories (Leave empty for Global)" name="category_ids">
             <Select
+              mode="multiple"
               allowClear
               showSearch
               placeholder="Global (Applicable to all categories)"
               optionFilterProp="label"
+              maxTagCount="responsive"
               filterOption={(input, option) =>
                 (option?.label ?? '').toString().toLowerCase().includes(input.toLowerCase())
               }

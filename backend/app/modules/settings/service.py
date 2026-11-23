@@ -767,12 +767,23 @@ async def archive_tax_rate(db: AsyncSession, tenant_id: uuid.UUID, user_id: uuid
 async def create_attribute(
     db: AsyncSession, tenant_id: uuid.UUID, user_id: uuid.UUID, data: AttributeDefinitionCreate
 ) -> AttributeDefinitionResponse:
-    if data.category_id:
+    target_category_ids = []
+    if data.category_ids is not None:
+        target_category_ids = [cid for cid in data.category_ids if cid is not None]
+    elif data.category_id is not None:
+        target_category_ids = [data.category_id]
+
+    if target_category_ids:
         cat_res = await db.execute(
-            select(Category).where(Category.id == data.category_id, Category.tenant_id == tenant_id)
+            select(Category.id).where(
+                Category.id.in_(target_category_ids),
+                Category.tenant_id == tenant_id,
+            )
         )
-        if not cat_res.scalar_one_or_none():
-            raise NotFoundException("Category", str(data.category_id))
+        found_ids = set(cat_res.scalars().all())
+        for cid in target_category_ids:
+            if cid not in found_ids:
+                raise NotFoundException("Category", str(cid))
 
     dup = await db.execute(
         select(AttributeDefinition).where(AttributeDefinition.tenant_id == tenant_id, AttributeDefinition.code == data.code)
@@ -780,12 +791,14 @@ async def create_attribute(
     if dup.scalar_one_or_none():
         raise ConflictException(f"Attribute code '{data.code}' already exists")
 
+    primary_cat_id = target_category_ids[0] if target_category_ids else None
+
     attr = AttributeDefinition(
         tenant_id=tenant_id,
         name=data.name,
         code=data.code,
         data_type=data.data_type,
-        category_id=data.category_id,
+        category_id=primary_cat_id,
         is_required=data.is_required,
         is_searchable=data.is_searchable,
         is_filterable=data.is_filterable,
@@ -796,10 +809,10 @@ async def create_attribute(
     db.add(attr)
     await db.flush()
 
-    if data.category_id:
+    for cid in set(target_category_ids):
         db.add(CategoryAttributeMapping(
             tenant_id=tenant_id,
-            category_id=data.category_id,
+            category_id=cid,
             attribute_id=attr.id,
         ))
 
@@ -824,8 +837,7 @@ async def create_attribute(
     # Reload with options
     reloaded = await get_attribute(db, tenant_id, attr.id)
     resp = AttributeDefinitionResponse.model_validate(reloaded)
-    if data.category_id:
-        resp.category_ids = [data.category_id]
+    resp.category_ids = list(target_category_ids)
     return resp
 
 
@@ -1121,7 +1133,7 @@ async def unlink_category_attribute(
     for m in existing.scalars().all():
         await db.delete(m)
 
-    # Also clear direct category_id on AttributeDefinition if pointing to this category
+    # Also update direct category_id on AttributeDefinition if pointing to this category
     attr_res = await db.execute(
         select(AttributeDefinition).where(
             AttributeDefinition.id == attribute_id,
@@ -1130,7 +1142,14 @@ async def unlink_category_attribute(
     )
     attr = attr_res.scalar_one_or_none()
     if attr and attr.category_id == category_id:
-        attr.category_id = None
+        remaining_res = await db.execute(
+            select(CategoryAttributeMapping.category_id).where(
+                CategoryAttributeMapping.tenant_id == tenant_id,
+                CategoryAttributeMapping.attribute_id == attribute_id,
+                CategoryAttributeMapping.category_id != category_id,
+            )
+        )
+        attr.category_id = remaining_res.scalars().first()
 
     await log_audit(db, tenant_id, user_id, "UNLINK", "category_attributes", category_id, f"Unlinked attribute from category {category_id}")
     await db.commit()
@@ -1171,48 +1190,58 @@ async def update_attribute(
         if dup.scalar_one_or_none():
             raise ConflictException(f"Attribute code '{update_dict['code']}' already exists")
 
-    if "category_id" in update_dict:
-        new_cat_id = update_dict["category_id"]
-        if new_cat_id is not None:
+    # Handle category mapping update
+    target_category_ids = None
+    if data.category_ids is not None:
+        target_category_ids = [cid for cid in data.category_ids if cid is not None]
+    elif "category_id" in update_dict:
+        if update_dict["category_id"] is not None:
+            target_category_ids = [update_dict["category_id"]]
+        else:
+            target_category_ids = []
+
+    if target_category_ids is not None:
+        if target_category_ids:
             cat_res = await db.execute(
-                select(Category).where(Category.id == new_cat_id, Category.tenant_id == tenant_id)
+                select(Category.id).where(
+                    Category.id.in_(target_category_ids),
+                    Category.tenant_id == tenant_id,
+                )
             )
-            if not cat_res.scalar_one_or_none():
-                raise NotFoundException("Category", str(new_cat_id))
+            found_ids = set(cat_res.scalars().all())
+            for cid in target_category_ids:
+                if cid not in found_ids:
+                    raise NotFoundException("Category", str(cid))
 
-        if attr.category_id != new_cat_id:
-            # Clean up old mapping for attr.category_id if present
-            if attr.category_id:
-                old_mappings = await db.execute(
-                    select(CategoryAttributeMapping).where(
-                        CategoryAttributeMapping.tenant_id == tenant_id,
-                        CategoryAttributeMapping.category_id == attr.category_id,
-                        CategoryAttributeMapping.attribute_id == attr.id,
-                    )
-                )
-                for m in old_mappings.scalars().all():
-                    await db.delete(m)
+        target_set = set(target_category_ids)
+        # Query existing CategoryAttributeMapping for this attribute
+        existing_mappings_res = await db.execute(
+            select(CategoryAttributeMapping).where(
+                CategoryAttributeMapping.tenant_id == tenant_id,
+                CategoryAttributeMapping.attribute_id == attr.id,
+            )
+        )
+        existing_mappings = existing_mappings_res.scalars().all()
+        existing_cids = {m.category_id for m in existing_mappings}
 
-            # Add mapping for new category if set
-            if new_cat_id:
-                existing_map = await db.execute(
-                    select(CategoryAttributeMapping).where(
-                        CategoryAttributeMapping.tenant_id == tenant_id,
-                        CategoryAttributeMapping.category_id == new_cat_id,
-                        CategoryAttributeMapping.attribute_id == attr.id,
-                    )
-                )
-                if not existing_map.scalar_one_or_none():
-                    db.add(CategoryAttributeMapping(
-                        tenant_id=tenant_id,
-                        category_id=new_cat_id,
-                        attribute_id=attr.id,
-                    ))
+        # Delete mappings no longer selected
+        for m in existing_mappings:
+            if m.category_id not in target_set:
+                await db.delete(m)
 
-            attr.category_id = new_cat_id
+        # Add new mappings
+        for cid in target_set:
+            if cid not in existing_cids:
+                db.add(CategoryAttributeMapping(
+                    tenant_id=tenant_id,
+                    category_id=cid,
+                    attribute_id=attr.id,
+                ))
+
+        attr.category_id = target_category_ids[0] if target_category_ids else None
 
     for k, v in update_dict.items():
-        if k != "category_id":
+        if k not in ("category_id", "category_ids"):
             setattr(attr, k, v)
 
     if data.options is not None:

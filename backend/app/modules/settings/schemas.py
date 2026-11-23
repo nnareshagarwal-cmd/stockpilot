@@ -233,6 +233,7 @@ class AttributeDefinitionCreate(BaseModel):
     code: str = Field(..., min_length=1, max_length=100)
     data_type: AttributeDataType
     category_id: Optional[uuid.UUID] = None
+    category_ids: Optional[List[uuid.UUID]] = None
     is_required: bool = False
     is_searchable: bool = False
     is_filterable: bool = False
@@ -247,6 +248,7 @@ class AttributeDefinitionUpdate(BaseModel):
     code: Optional[str] = Field(None, min_length=1, max_length=100)
     data_type: Optional[AttributeDataType] = None
     category_id: Optional[uuid.UUID] = None
+    category_ids: Optional[List[uuid.UUID]] = None
     is_required: Optional[bool] = None
     is_searchable: Optional[bool] = None
     is_filterable: Optional[bool] = None
