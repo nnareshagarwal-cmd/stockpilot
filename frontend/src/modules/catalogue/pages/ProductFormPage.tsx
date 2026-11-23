@@ -454,8 +454,16 @@ export const ProductFormPage: React.FC = () => {
       navigate(`/products/${product.id}`, { state: location.state })
     },
     onError: (err: any) => {
-      const msg = err.response?.data?.error?.message || 'Failed to save product'
-      message.error(msg)
+      const data = err.response?.data
+      let msg = data?.error?.message
+      if (!msg && typeof data?.detail === 'string') {
+        msg = data.detail
+      } else if (!msg && Array.isArray(data?.detail)) {
+        msg = data.detail.map((d: any) => d.msg || JSON.stringify(d)).join(', ')
+      } else if (!msg && data?.message) {
+        msg = data.message
+      }
+      message.error(msg || 'Failed to save product')
     },
   })
 
