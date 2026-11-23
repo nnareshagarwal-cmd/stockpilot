@@ -202,12 +202,6 @@ async def seed_homedecor():
             ["Box Storage", "Hydraulic Lift-Up", "Drawer Storage", "Open Shelf", "None"]
         )
 
-        # Attribute for Location display (referencing the user's created locations!)
-        loc_options = [f"{l.name} [{l.code}]" for l in existing_locs] if existing_locs else ["Showroom Ground Floor [STORE-01-GF]"]
-        attr_display_loc = await get_or_create_attr(
-            "Floor / Godown Location", "assigned_location", "single_choice",
-            loc_options
-        )
 
         # Load options map
         opts_res = await db.execute(select(AttributeOption))
@@ -290,7 +284,6 @@ async def seed_homedecor():
                     attr_finish.id: ("option", "Navy Blue"),
                     attr_capacity.id: ("number", Decimal("3")),
                     attr_storage.id: ("option", "None"),
-                    attr_display_loc.id: ("option", "Showroom Ground Floor [STORE-01-GF]"),
                 },
             },
             # 2. Chesterfield 3-Seater Sofa
@@ -317,7 +310,6 @@ async def seed_homedecor():
                     attr_finish.id: ("option", "Chestnut Brown"),
                     attr_capacity.id: ("number", Decimal("3")),
                     attr_storage.id: ("option", "None"),
-                    attr_display_loc.id: ("option", "Showroom Ground Floor [STORE-01-GF]"),
                 },
             },
             # 3. 2 Seater Sofa
@@ -344,7 +336,6 @@ async def seed_homedecor():
                     attr_finish.id: ("option", "Warm Beige"),
                     attr_capacity.id: ("number", Decimal("2")),
                     attr_storage.id: ("option", "None"),
-                    attr_display_loc.id: ("option", "Showroom First Floor [STORE-01-FF]"),
                 },
             },
             # 4. Sectional Corner Sofa
@@ -380,7 +371,6 @@ async def seed_homedecor():
                     attr_finish.id: ("option", "Charcoal Grey"),
                     attr_capacity.id: ("number", Decimal("5")),
                     attr_storage.id: ("option", "None"),
-                    attr_display_loc.id: ("option", "Showroom Ground Floor [STORE-01-GF]"),
                 },
             },
             # 5. Sofa Cum Bed
@@ -407,7 +397,6 @@ async def seed_homedecor():
                     attr_finish.id: ("option", "Navy Blue"),
                     attr_capacity.id: ("number", Decimal("3")),
                     attr_storage.id: ("option", "Hydraulic Lift-Up"),
-                    attr_display_loc.id: ("option", "Showroom First Floor [STORE-01-FF]"),
                 },
             },
             # 6. Recliner
@@ -434,7 +423,6 @@ async def seed_homedecor():
                     attr_finish.id: ("option", "Chestnut Brown"),
                     attr_capacity.id: ("number", Decimal("1")),
                     attr_storage.id: ("option", "None"),
-                    attr_display_loc.id: ("option", "Showroom Ground Floor [STORE-01-GF]"),
                 },
             },
             # 7. King Size Bed with Storage
@@ -470,7 +458,6 @@ async def seed_homedecor():
                     attr_finish.id: ("option", "Walnut Finish"),
                     attr_capacity.id: ("number", Decimal("2")),
                     attr_storage.id: ("option", "Box Storage"),
-                    attr_display_loc.id: ("option", "Showroom Second Floor [STORE-01-SF]"),
                 },
             },
             # 8. Queen Bed Hydraulic
@@ -497,7 +484,6 @@ async def seed_homedecor():
                     attr_finish.id: ("option", "Walnut Finish"),
                     attr_capacity.id: ("number", Decimal("2")),
                     attr_storage.id: ("option", "Hydraulic Lift-Up"),
-                    attr_display_loc.id: ("option", "Showroom Second Floor [STORE-01-SF]"),
                 },
             },
             # 9. 4 Door Wardrobe
@@ -532,7 +518,6 @@ async def seed_homedecor():
                     attr_material.id: ("option", "Engineered Wood"),
                     attr_finish.id: ("option", "Honey Oak"),
                     attr_storage.id: ("option", "Drawer Storage"),
-                    attr_display_loc.id: ("option", "Showroom Second Floor [STORE-01-SF]"),
                 },
             },
             # 10. Sliding Wardrobe
@@ -558,7 +543,6 @@ async def seed_homedecor():
                     attr_material.id: ("option", "Engineered Wood"),
                     attr_finish.id: ("option", "Walnut Finish"),
                     attr_storage.id: ("option", "Drawer Storage"),
-                    attr_display_loc.id: ("option", "Showroom Second Floor [STORE-01-SF]"),
                 },
             },
             # 11. King Size Mattress
@@ -583,7 +567,6 @@ async def seed_homedecor():
                 "attrs": {
                     attr_material.id: ("option", "High Density Foam"),
                     attr_finish.id: ("option", "Warm Beige"),
-                    attr_display_loc.id: ("option", "Showroom Second Floor [STORE-01-SF]"),
                 },
             },
             # 12. Queen Mattress
@@ -608,7 +591,6 @@ async def seed_homedecor():
                 "attrs": {
                     attr_material.id: ("option", "High Density Foam"),
                     attr_finish.id: ("option", "Warm Beige"),
-                    attr_display_loc.id: ("option", "Gali Godown Ground Floor [Godown-01-GF]"),
                 },
             },
             # 13. 6 Seater Dining Set
@@ -635,7 +617,6 @@ async def seed_homedecor():
                     attr_finish.id: ("option", "Teak Finish"),
                     attr_capacity.id: ("number", Decimal("6")),
                     attr_storage.id: ("option", "None"),
-                    attr_display_loc.id: ("option", "Showroom First Floor [STORE-01-FF]"),
                 },
             },
             # 14. 4 Seater Dining Set
@@ -662,7 +643,6 @@ async def seed_homedecor():
                     attr_finish.id: ("option", "Walnut Finish"),
                     attr_capacity.id: ("number", Decimal("4")),
                     attr_storage.id: ("option", "None"),
-                    attr_display_loc.id: ("option", "Showroom First Floor [STORE-01-FF]"),
                 },
             },
             # 15. Centre Coffee Table
@@ -689,7 +669,6 @@ async def seed_homedecor():
                     attr_finish.id: ("option", "Teak Finish"),
                     attr_capacity.id: ("number", Decimal("4")),
                     attr_storage.id: ("option", "Open Shelf"),
-                    attr_display_loc.id: ("option", "Showroom Ground Floor [STORE-01-GF]"),
                 },
             },
             # 16. TV & Media Entertainment Unit
@@ -715,7 +694,6 @@ async def seed_homedecor():
                     attr_material.id: ("option", "Engineered Wood"),
                     attr_finish.id: ("option", "Walnut Finish"),
                     attr_storage.id: ("option", "Drawer Storage"),
-                    attr_display_loc.id: ("option", "Showroom First Floor [STORE-01-FF]"),
                 },
             },
             # 17. Bookshelf
@@ -741,7 +719,6 @@ async def seed_homedecor():
                     attr_material.id: ("option", "Engineered Wood"),
                     attr_finish.id: ("option", "Teak Finish"),
                     attr_storage.id: ("option", "Open Shelf"),
-                    attr_display_loc.id: ("option", "Showroom Third Floor [STORE-01-TF]"),
                 },
             },
             # 18. Shoe Rack Cabinet
@@ -767,7 +744,6 @@ async def seed_homedecor():
                     attr_material.id: ("option", "Engineered Wood"),
                     attr_finish.id: ("option", "Honey Oak"),
                     attr_storage.id: ("option", "Drawer Storage"),
-                    attr_display_loc.id: ("option", "Showroom Ground Floor [STORE-01-GF]"),
                 },
             },
             # 19. Office Ergonomic Chair
@@ -803,7 +779,6 @@ async def seed_homedecor():
                     attr_finish.id: ("option", "Matte Black"),
                     attr_capacity.id: ("number", Decimal("1")),
                     attr_storage.id: ("option", "None"),
-                    attr_display_loc.id: ("option", "Showroom Third Floor [STORE-01-TF]"),
                 },
             },
             # 20. Outdoor Hanging Swing
@@ -830,7 +805,6 @@ async def seed_homedecor():
                     attr_finish.id: ("option", "Chestnut Brown"),
                     attr_capacity.id: ("number", Decimal("1")),
                     attr_storage.id: ("option", "None"),
-                    attr_display_loc.id: ("option", "Showroom Third Floor [STORE-01-TF]"),
                 },
             },
         ]

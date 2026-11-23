@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react'
+import { useNavigate } from 'react-router-dom'
 import {
   Card,
   Table,
@@ -19,6 +20,7 @@ import {
   Col,
   Empty,
   Divider,
+  Alert,
 } from 'antd'
 import {
   PlusOutlined,
@@ -29,9 +31,6 @@ import {
   FolderOutlined,
   FolderOpenOutlined,
   AppstoreOutlined,
-  SkinOutlined,
-  BlockOutlined,
-  InboxOutlined,
   CheckCircleOutlined,
   DollarOutlined,
   TagOutlined,
@@ -61,46 +60,6 @@ const LOOKUP_REGISTRY: LookupDefinition[] = [
     usedIn: 'Product Form > Variants (Pcs, Set, etc.)',
     icon: <AppstoreOutlined style={{ color: '#2563eb' }} />,
     description: 'Units used for product inventory, pricing, and orders.',
-  },
-  {
-    category: 'color_finish',
-    label: 'Color & Finish',
-    module: 'Products & Catalogue',
-    usedIn: 'Product Form > Technical Specs',
-    icon: <SkinOutlined style={{ color: '#d97706' }} />,
-    description: 'Surface finishes, stains, polish tones, and colorways.',
-  },
-  {
-    category: 'primary_material',
-    label: 'Primary Material',
-    module: 'Products & Catalogue',
-    usedIn: 'Product Form > Technical Specs',
-    icon: <BlockOutlined style={{ color: '#059669' }} />,
-    description: 'Core construction materials such as woods, fabrics, and metals.',
-  },
-  {
-    category: 'storage_included',
-    label: 'Storage Included',
-    module: 'Products & Catalogue',
-    usedIn: 'Product Form > Technical Specs',
-    icon: <InboxOutlined style={{ color: '#7c3aed' }} />,
-    description: 'Storage configurations for beds, sofas, wardrobes, and tables.',
-  },
-  {
-    category: 'wood_type',
-    label: 'Wood Type',
-    module: 'Products & Catalogue',
-    usedIn: 'Product Form > Technical Specs',
-    icon: <BlockOutlined style={{ color: '#b45309' }} />,
-    description: 'Types of solid woods used in furniture manufacturing.',
-  },
-  {
-    category: 'seating_capacity',
-    label: 'Seating Capacity',
-    module: 'Products & Catalogue',
-    usedIn: 'Product Form > Technical Specs',
-    icon: <AppstoreOutlined style={{ color: '#0891b2' }} />,
-    description: 'Number of seats (e.g. 1 Seater, 3 Seater, 6 Seater Dining).',
   },
 
   // Inventory & Stock
@@ -157,8 +116,10 @@ const LOOKUP_REGISTRY: LookupDefinition[] = [
 ]
 
 export const LookupMasterPage: React.FC = () => {
+  const navigate = useNavigate()
+
   // Navigation & Filter State
-  const [selectedCategory, setSelectedCategory] = useState<string>('color_finish')
+  const [selectedCategory, setSelectedCategory] = useState<string>('unit')
   const [navSearch, setNavSearch] = useState<string>('')
   const [tableSearch, setTableSearch] = useState<string>('')
 
@@ -484,7 +445,7 @@ export const LookupMasterPage: React.FC = () => {
             Lookup Master
           </Title>
           <Text type="secondary" style={{ fontSize: '13px' }}>
-            Centralized management of all dynamic dropdown values across the application. Changes take effect live immediately.
+            Centralized management of system, inventory, and operational dropdown values. Changes take effect live immediately.
           </Text>
         </div>
         <Button
@@ -497,6 +458,27 @@ export const LookupMasterPage: React.FC = () => {
           Refresh
         </Button>
       </div>
+
+      {/* Guide Banner for Category Specifications */}
+      <Alert
+        type="info"
+        showIcon
+        style={{ marginBottom: 16, borderRadius: '8px', border: '1px solid #bfdbfe', background: '#eff6ff' }}
+        message={
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12 }}>
+            <span style={{ fontSize: '13px', color: '#1e3a8a' }}>
+              <strong>Looking for Product Specifications?</strong> Color & Finish, Primary Materials, Wood Types, Seating Capacities, and Storage Options are managed in <strong>Category Specifications & Technical Attributes</strong> and mapped dynamically to categories and subcategories.
+            </span>
+            <Button
+              type="primary"
+              size="small"
+              onClick={() => navigate('/settings/attributes')}
+            >
+              Category Specifications →
+            </Button>
+          </div>
+        }
+      />
 
       {/* Main Two-Column Layout */}
       <Row gutter={[16, 16]}>

@@ -179,15 +179,6 @@ export const ProductFormPage: React.FC = () => {
     },
   })
 
-  // Locations tree for hierarchical Floor / Godown selection
-  const { data: rawLocationTree } = useQuery({
-    queryKey: ['locations-tree'],
-    queryFn: async () => {
-      const res = await apiClient.get<ApiResponse<any[]>>('/locations?format=tree')
-      return res.data.data
-    },
-  })
-
   // Dynamic attributes query based on selected category
   const { data: attributes } = useQuery({
     queryKey: ['attributes-by-category', selectedCategoryId],
@@ -364,47 +355,6 @@ export const ProductFormPage: React.FC = () => {
       })
     )
   }
-
-  // Build tree data for Floor / Godown Location mapped to attribute option IDs
-  const locationTreeData = useMemo(() => {
-    if (!rawLocationTree) return []
-
-    // Find the assigned_location attribute definition
-    const locAttr = attributes?.find(
-      (a) => a.code === 'assigned_location' || a.name.toLowerCase().includes('location')
-    )
-    const options = locAttr?.options || []
-
-    const mapTree = (nodes: any[]): any[] => {
-      return nodes.map((node) => {
-        // Clean location display title
-        const cleanName = node.name.replace(/\[.*?\]/g, '').trim()
-
-        // Match option id in attribute definition
-        const matchedOpt = options.find((o) => {
-          const optVal = o.value.toLowerCase()
-          return (
-            (node.code && optVal.includes(node.code.toLowerCase())) ||
-            optVal.includes(cleanName.toLowerCase()) ||
-            optVal.includes(node.name.toLowerCase())
-          )
-        })
-
-        const mappedNode: any = {
-          title: cleanName,
-          value: matchedOpt ? matchedOpt.id : node.id,
-          key: node.id,
-        }
-
-        if (node.children && node.children.length > 0) {
-          mappedNode.children = mapTree(node.children)
-        }
-        return mappedNode
-      })
-    }
-
-    return mapTree(rawLocationTree)
-  }, [rawLocationTree, attributes])
 
   // Load existing product if editing
   const { data: existingProduct } = useQuery({
@@ -1052,14 +1002,7 @@ export const ProductFormPage: React.FC = () => {
               These specifications power dynamic search filters. You can also add new custom options directly from each dropdown.
             </Paragraph>
             <Row gutter={16}>
-              {attributes
-                .filter(
-                  (attrDef) =>
-                    attrDef.code !== 'assigned_location' &&
-                    !attrDef.name.toLowerCase().includes('location') &&
-                    !attrDef.name.toLowerCase().includes('godown')
-                )
-                .map((attrDef) => {
+              {attributes.map((attrDef) => {
                   return (
                     <Col xs={24} sm={12} md={8} key={attrDef.id}>
                       {attrDef.data_type === 'single_choice' ? (
