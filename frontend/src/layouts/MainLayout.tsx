@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react'
-import { Layout, Menu, Button, Dropdown, Avatar, Space, Typography, Input, theme } from 'antd'
+import { Layout, Menu, Button, Dropdown, Avatar, Typography, Tooltip, theme } from 'antd'
 import {
   DashboardOutlined,
   HomeOutlined,
@@ -9,7 +9,6 @@ import {
   SettingOutlined,
   UserOutlined,
   LogoutOutlined,
-  SearchOutlined,
   MenuFoldOutlined,
   MenuUnfoldOutlined,
   ShopOutlined,
@@ -29,12 +28,11 @@ import {
 import { useNavigate, useLocation, Outlet } from 'react-router-dom'
 import { useAuth } from '../auth/AuthContext'
 
-const { Header, Sider, Content } = Layout
+const { Sider, Content } = Layout
 const { Text } = Typography
 
 export const MainLayout: React.FC = () => {
   const [collapsed, setCollapsed] = useState(false)
-  const [searchQuery, setSearchQuery] = useState('')
   const { currentUser, logout } = useAuth()
   const navigate = useNavigate()
   const location = useLocation()
@@ -63,12 +61,6 @@ export const MainLayout: React.FC = () => {
       setOpenKeys((prev) => [...prev, parentSub])
     }
   }, [location.pathname])
-
-  const handleGlobalSearch = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === 'Enter' && searchQuery.trim()) {
-      navigate(`/home-search?q=${encodeURIComponent(searchQuery.trim())}`)
-    }
-  }
 
   const userMenuItems = [
     {
@@ -185,13 +177,14 @@ export const MainLayout: React.FC = () => {
   ]
 
   return (
-    <Layout style={{ minHeight: '100vh' }}>
+    <Layout style={{ minHeight: '100vh', background: '#f8fafc' }}>
       <Sider
         trigger={null}
         collapsible
         collapsed={collapsed}
         theme="light"
         width={240}
+        collapsedWidth={72}
         style={{
           borderRight: '1px solid #e2e8f0',
           position: 'sticky',
@@ -202,129 +195,164 @@ export const MainLayout: React.FC = () => {
       >
         <div
           style={{
-            height: '64px',
             display: 'flex',
-            alignItems: 'center',
-            padding: collapsed ? '0 20px' : '0 24px',
-            gap: '12px',
-            borderBottom: '1px solid #f1f5f9',
-            cursor: 'pointer',
+            flexDirection: 'column',
+            height: '100%',
           }}
-          onClick={() => navigate('/')}
         >
+          {/* Sider Header: Logo + Collapse/Expand Toggle */}
           <div
             style={{
-              width: '36px',
-              height: '36px',
-              borderRadius: '8px',
-              background: 'linear-gradient(135deg, #1677ff 0%, #0050b3 100%)',
+              height: '52px',
               display: 'flex',
               alignItems: 'center',
-              justifyContent: 'center',
-              color: '#fff',
-              fontWeight: 'bold',
-              fontSize: '18px',
+              justifyContent: collapsed ? 'center' : 'space-between',
+              padding: collapsed ? '0 8px' : '0 12px 0 16px',
+              borderBottom: '1px solid #f1f5f9',
               flexShrink: 0,
             }}
           >
-            SP
+            {!collapsed ? (
+              <>
+                <div
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '10px',
+                    cursor: 'pointer',
+                    overflow: 'hidden',
+                  }}
+                  onClick={() => navigate('/')}
+                >
+                  <div
+                    style={{
+                      width: '32px',
+                      height: '32px',
+                      borderRadius: '8px',
+                      background: 'linear-gradient(135deg, #1677ff 0%, #0050b3 100%)',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      color: '#fff',
+                      fontWeight: 'bold',
+                      fontSize: '15px',
+                      flexShrink: 0,
+                    }}
+                  >
+                    SP
+                  </div>
+                  <div style={{ overflow: 'hidden', whiteSpace: 'nowrap' }}>
+                    <Text strong style={{ fontSize: '15px', display: 'block', lineHeight: 1.2 }}>
+                      StockPilot
+                    </Text>
+                    <Text type="secondary" style={{ fontSize: '10.5px', display: 'block' }}>
+                      {currentUser?.business?.name || 'Retail ERP'}
+                    </Text>
+                  </div>
+                </div>
+                <Tooltip title="Collapse sidebar" placement="right">
+                  <Button
+                    type="text"
+                    icon={<MenuFoldOutlined />}
+                    onClick={() => setCollapsed(true)}
+                    style={{ fontSize: '16px', width: 32, height: 32, color: '#64748b' }}
+                  />
+                </Tooltip>
+              </>
+            ) : (
+              <Tooltip title="Expand sidebar" placement="right">
+                <Button
+                  type="text"
+                  icon={<MenuUnfoldOutlined />}
+                  onClick={() => setCollapsed(false)}
+                  style={{ fontSize: '18px', width: 36, height: 36, color: '#1677ff' }}
+                />
+              </Tooltip>
+            )}
           </div>
-          {!collapsed && (
-            <div style={{ overflow: 'hidden', whiteSpace: 'nowrap' }}>
-              <Text strong style={{ fontSize: '16px', display: 'block', lineHeight: 1.2 }}>
-                StockPilot
-              </Text>
-              <Text type="secondary" style={{ fontSize: '11px', display: 'block' }}>
-                {currentUser?.business?.name || 'Retail ERP'}
-              </Text>
-            </div>
-          )}
-        </div>
 
-        <Menu
-          mode="inline"
-          selectedKeys={[
-            location.pathname === '/stock/mapping' || location.pathname === '/stock/balances'
-              ? '/stock/maintenance'
-              : location.pathname === '/dashboard'
-              ? '/'
-              : location.pathname,
-          ]}
-          openKeys={collapsed ? undefined : openKeys}
-          onOpenChange={(keys) => setOpenKeys(keys)}
-          items={menuItems}
-          onClick={({ key }) => {
-            if (key.startsWith('/')) navigate(key)
-          }}
-          style={{ borderRight: 0, paddingTop: '12px' }}
-        />
+          {/* Sider Menu (Scrollable) */}
+          <div style={{ flex: 1, overflowY: 'auto', overflowX: 'hidden' }}>
+            <Menu
+              mode="inline"
+              selectedKeys={[
+                location.pathname === '/stock/mapping' || location.pathname === '/stock/balances'
+                  ? '/stock/maintenance'
+                  : location.pathname === '/dashboard'
+                  ? '/'
+                  : location.pathname,
+              ]}
+              openKeys={collapsed ? undefined : openKeys}
+              onOpenChange={(keys) => setOpenKeys(keys)}
+              items={menuItems}
+              onClick={({ key }) => {
+                if (key.startsWith('/')) navigate(key)
+              }}
+              style={{ borderRight: 0, paddingTop: '8px' }}
+            />
+          </div>
+
+          {/* Sider Bottom: User Profile Avatar & Dropdown */}
+          <div
+            style={{
+              padding: collapsed ? '12px 0' : '10px 14px',
+              borderTop: '1px solid #f1f5f9',
+              background: '#ffffff',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: collapsed ? 'center' : 'flex-start',
+              flexShrink: 0,
+            }}
+          >
+            <Dropdown menu={{ items: userMenuItems }} placement="topRight" trigger={['click']}>
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '10px',
+                  cursor: 'pointer',
+                  overflow: 'hidden',
+                  width: '100%',
+                  padding: collapsed ? '0' : '4px',
+                  borderRadius: '6px',
+                  justifyContent: collapsed ? 'center' : 'flex-start',
+                }}
+              >
+                <Avatar
+                  style={{
+                    backgroundColor: '#1677ff',
+                    flexShrink: 0,
+                    boxShadow: '0 2px 6px rgba(22, 119, 255, 0.25)',
+                  }}
+                  size={34}
+                >
+                  {currentUser?.user?.full_name?.charAt(0).toUpperCase() || 'U'}
+                </Avatar>
+                {!collapsed && (
+                  <div style={{ overflow: 'hidden', whiteSpace: 'nowrap', lineHeight: 1.25, flex: 1 }}>
+                    <Text
+                      strong
+                      style={{ fontSize: '13px', display: 'block', textOverflow: 'ellipsis', overflow: 'hidden' }}
+                    >
+                      {currentUser?.user?.full_name || 'User'}
+                    </Text>
+                    <Text type="secondary" style={{ fontSize: '11px', textTransform: 'capitalize' }}>
+                      {currentUser?.role?.name || 'Staff'} • {currentUser?.business?.name || 'HomeDecor'}
+                    </Text>
+                  </div>
+                )}
+              </div>
+            </Dropdown>
+          </div>
+        </div>
       </Sider>
 
-      <Layout>
-        <Header
-          style={{
-            padding: '0 24px',
-            background: '#ffffff',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            borderBottom: '1px solid #e2e8f0',
-            position: 'sticky',
-            top: 0,
-            zIndex: 9,
-            height: '64px',
-          }}
-        >
-          <Space size={16}>
-            <Button
-              type="text"
-              icon={collapsed ? <MenuUnfoldOutlined /> : <MenuFoldOutlined />}
-              onClick={() => setCollapsed(!collapsed)}
-              style={{ fontSize: '16px', width: 40, height: 40 }}
-            />
-            {location.pathname !== '/home-search' && (
-              <Input
-                prefix={<SearchOutlined style={{ color: '#94a3b8' }} />}
-                placeholder="Search products, SKUs, specifications (e.g. 18W, Sofa)..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                onKeyDown={handleGlobalSearch}
-                style={{ width: '360px', borderRadius: '8px', background: '#f8fafc' }}
-                allowClear
-              />
-            )}
-          </Space>
-
-          <Space direction="horizontal" size={16}>
-            <div style={{ textAlign: 'right', display: 'none', md: 'block' } as any}>
-              <Text strong style={{ display: 'block', fontSize: '13px' }}>
-                {currentUser?.user?.full_name}
-              </Text>
-              <Text type="secondary" style={{ fontSize: '11px', textTransform: 'capitalize' }}>
-                {currentUser?.role?.name || 'Staff'} • {currentUser?.business?.name}
-              </Text>
-            </div>
-            <Dropdown menu={{ items: userMenuItems }} placement="bottomRight" trigger={['click']}>
-              <Avatar
-                style={{
-                  backgroundColor: '#1677ff',
-                  cursor: 'pointer',
-                  verticalAlign: 'middle',
-                  boxShadow: '0 2px 8px rgba(22, 119, 255, 0.25)',
-                }}
-                size={38}
-              >
-                {currentUser?.user?.full_name?.charAt(0).toUpperCase() || 'U'}
-              </Avatar>
-            </Dropdown>
-          </Space>
-        </Header>
-
+      <Layout style={{ background: '#f8fafc', minHeight: '100vh' }}>
         <Content
           style={{
-            padding: '24px',
+            padding: '16px 24px',
             background: '#f8fafc',
-            minHeight: 'calc(100vh - 64px)',
+            minHeight: '100vh',
           }}
         >
           <Outlet />

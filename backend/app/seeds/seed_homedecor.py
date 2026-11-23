@@ -15,6 +15,7 @@ from app.modules.settings.models import (
     TaxRate,
     AttributeDefinition,
     AttributeOption,
+    ListOfValues,
 )
 from app.modules.catalogue.models import (
     Product,
@@ -211,6 +212,48 @@ async def seed_homedecor():
         # Load options map
         opts_res = await db.execute(select(AttributeOption))
         all_opts = {(o.attribute_id, o.value): o.id for o in opts_res.scalars().all()}
+
+        # Seed LOV defaults for location_type and adjustment_reason
+        lov_defaults = [
+            ("location_type", "store", "Store (Retail Shop)", 1, "Retail store location"),
+            ("location_type", "showroom", "Showroom", 2, "Display showroom"),
+            ("location_type", "warehouse", "Warehouse", 3, "Central or regional warehouse"),
+            ("location_type", "godown", "Godown", 4, "Storage godown facility"),
+            ("location_type", "floor", "Floor", 5, "Floor level within a building"),
+            ("location_type", "section", "Section / Zone", 6, "Designated section or zone"),
+            ("location_type", "rack", "Rack", 7, "Storage rack"),
+            ("location_type", "shelf", "Shelf", 8, "Storage shelf"),
+            ("location_type", "bin", "Bin", 9, "Storage bin or slot"),
+            ("location_type", "other", "Other", 10, "Other general location type"),
+            ("adjustment_reason", "PHYSICAL_COUNT", "Physical Stock Count / Audit", 1, "Periodic physical count or annual audit reconciliation"),
+            ("adjustment_reason", "DAMAGE", "Damage / Broken Goods Write-off", 2, "Damaged, broken, or spoiled inventory write-off"),
+            ("adjustment_reason", "THEFT_LOSS", "Theft / Shrinkage Loss", 3, "Inventory shrinkage, loss, or theft write-off"),
+            ("adjustment_reason", "FOUND_STOCK", "Found Unrecorded Stock", 4, "Discovered unrecorded units during inspection"),
+            ("adjustment_reason", "DAMAGED_IN_STORE", "Damaged in Store / Display", 5, "Items damaged on showroom floor or during handling"),
+            ("adjustment_reason", "CLERICAL_ERROR", "Clerical Correction", 6, "Correction for data entry or bookkeeping error"),
+            ("adjustment_reason", "SAMPLE", "Display Sample Conversion", 7, "Stock allocated or written off for floor demo/sample"),
+            ("adjustment_reason", "OTHER", "Other Operational Adjustment", 8, "Other miscellaneous inventory adjustment"),
+        ]
+        for cat, val, lbl, s_ord, desc in lov_defaults:
+            existing_lov = (await db.execute(
+                select(ListOfValues).where(
+                    ListOfValues.tenant_id == TENANT_ID,
+                    ListOfValues.category == cat,
+                    ListOfValues.value == val
+                )
+            )).scalar_one_or_none()
+            if not existing_lov:
+                db.add(ListOfValues(
+                    tenant_id=TENANT_ID,
+                    category=cat,
+                    value=val,
+                    label=lbl,
+                    sort_order=s_ord,
+                    is_active=True,
+                    is_system=True,
+                    description=desc,
+                ))
+        await db.flush()
 
         # 7. 20 Realistic Furniture Products
         products_spec = [

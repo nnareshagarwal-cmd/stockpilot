@@ -87,8 +87,10 @@ async def list_stock_balances(
 @router.get("/movements")
 async def list_stock_movements(
     variant_id: Optional[uuid.UUID] = Query(None),
+    product_id: Optional[uuid.UUID] = Query(None),
     location_id: Optional[uuid.UUID] = Query(None),
     movement_type: Optional[str] = Query(None),
+    search: Optional[str] = Query(None),
     page: int = Query(1, ge=1),
     page_size: int = Query(50, ge=1, le=200),
     tenant_id: uuid.UUID = Depends(get_tenant_id),
@@ -100,8 +102,10 @@ async def list_stock_movements(
     items, total = await service.list_movements(
         tenant_id=tenant_id,
         variant_id=variant_id,
+        product_id=product_id,
         location_id=location_id,
         movement_type=movement_type,
+        search=search,
         limit=page_size,
         offset=offset,
     )
@@ -119,6 +123,8 @@ async def list_stock_movements(
 @router.get("/transfers")
 async def list_stock_transfers(
     status_filter: Optional[str] = Query(None, alias="status"),
+    product_id: Optional[uuid.UUID] = Query(None),
+    search: Optional[str] = Query(None),
     page: int = Query(1, ge=1),
     page_size: int = Query(50, ge=1, le=200),
     tenant_id: uuid.UUID = Depends(get_tenant_id),
@@ -130,6 +136,8 @@ async def list_stock_transfers(
     items, total = await service.list_transfers(
         tenant_id=tenant_id,
         status=status_filter,
+        product_id=product_id,
+        search=search,
         limit=page_size,
         offset=offset,
     )
@@ -349,12 +357,22 @@ async def record_stock_adjustment(
 
 @router.get("/ageing")
 async def get_stock_ageing(
+    product_id: Optional[uuid.UUID] = Query(None),
+    category_id: Optional[uuid.UUID] = Query(None),
+    brand_id: Optional[uuid.UUID] = Query(None),
+    search: Optional[str] = Query(None),
     tenant_id: uuid.UUID = Depends(get_tenant_id),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     service = StockService(db)
-    return await service.get_ageing_report(tenant_id=tenant_id)
+    return await service.get_ageing_report(
+        tenant_id=tenant_id,
+        product_id=product_id,
+        category_id=category_id,
+        brand_id=brand_id,
+        search=search,
+    )
 
 
 @router.get("/reconciliation")

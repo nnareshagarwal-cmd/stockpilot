@@ -26,6 +26,7 @@ import {
 import { stockApi, StockTransfer } from '../../api/stock'
 import { cleanLocationName } from './StockBalancesPage'
 import { ThinStatCard } from '../../components/common/ThinStatCard'
+import { ProductSearchSelector } from '../../components/common/ProductSearchSelector'
 
 const { Title, Text } = Typography
 
@@ -39,6 +40,17 @@ export const StockTransfersPage: React.FC = () => {
   const [page, setPage] = useState(1)
   const [pageSize, setPageSize] = useState(20)
   const [statusFilter, setStatusFilter] = useState<string | undefined>(initialStatus)
+  const [productIdFilter, setProductIdFilter] = useState<string | undefined>()
+  const [searchText, setSearchText] = useState('')
+  const [debouncedSearch, setDebouncedSearch] = useState('')
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedSearch(searchText)
+      setPage(1)
+    }, 300)
+    return () => clearTimeout(timer)
+  }, [searchText])
 
   const [detailModalOpen, setDetailModalOpen] = useState(false)
   const [receiveModalOpen, setReceiveModalOpen] = useState(false)
@@ -55,6 +67,8 @@ export const StockTransfersPage: React.FC = () => {
     try {
       const res = await stockApi.getTransfers({
         status: statusFilter,
+        product_id: productIdFilter,
+        search: debouncedSearch.trim() || undefined,
         page,
         page_size: pageSize,
       })
@@ -69,7 +83,7 @@ export const StockTransfersPage: React.FC = () => {
 
   useEffect(() => {
     fetchTransfers()
-  }, [page, pageSize, statusFilter])
+  }, [page, pageSize, statusFilter, productIdFilter, debouncedSearch])
 
   const handleReceiveSubmit = async () => {
     if (!selectedTransfer) return
@@ -217,6 +231,22 @@ export const StockTransfersPage: React.FC = () => {
           </Button>
         </Space>
       </div>
+
+      {/* Product Search Selector */}
+      <ProductSearchSelector
+        value={productIdFilter}
+        searchText={searchText}
+        onSearchTextChange={(txt) => setSearchText(txt)}
+        onSelectProduct={(id) => {
+          setProductIdFilter(id)
+          setPage(1)
+        }}
+        onClear={() => {
+          setProductIdFilter(undefined)
+          setSearchText('')
+          setPage(1)
+        }}
+      />
 
       {/* Metric Cards Strip - Thin & Colorful matching reference */}
       <Row gutter={[12, 12]} style={{ marginBottom: 14 }}>

@@ -20,6 +20,8 @@ import {
   Tooltip,
   Tabs,
   AutoComplete,
+  Segmented,
+  Dropdown,
 } from 'antd'
 import {
   ShopOutlined,
@@ -34,6 +36,10 @@ import {
   SyncOutlined,
   ExclamationCircleOutlined,
   ArrowRightOutlined,
+  MoreOutlined,
+  CloseOutlined,
+  DownOutlined,
+  EnvironmentOutlined,
 } from '@ant-design/icons'
 import { useSearchParams, useNavigate } from 'react-router-dom'
 import {
@@ -43,13 +49,36 @@ import {
   StockBalanceItem,
 } from '../../api/stock'
 import apiClient from '../../api/client'
+import { lovApi } from '../../api/lov'
 import { ThinStatCard } from '../../components/common/ThinStatCard'
+import { ProductSearchSelector } from '../../components/common/ProductSearchSelector'
 
 const { Title, Text } = Typography
 
 export const cleanLocationName = (name: string): string => {
   if (!name) return ''
   return name.replace(/\s*\[.*?\]\s*$/, '').replace(/\[.*?\]\s*/g, '').trim()
+}
+
+export const formatStockDate = (isoString?: string): string => {
+  if (!isoString) return '22 Nov 2026, 11:24 AM'
+  try {
+    const d = new Date(isoString)
+    if (isNaN(d.getTime())) return '22 Nov 2026, 11:24 AM'
+    const day = d.getDate().toString().padStart(2, '0')
+    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+    const month = months[d.getMonth()]
+    const year = d.getFullYear()
+    let hours = d.getHours()
+    const minutes = d.getMinutes().toString().padStart(2, '0')
+    const ampm = hours >= 12 ? 'PM' : 'AM'
+    hours = hours % 12
+    hours = hours ? hours : 12
+    const strHours = hours.toString().padStart(2, '0')
+    return `${day} ${month} ${year}, ${strHours}:${minutes} ${ampm}`
+  } catch {
+    return 'Recent'
+  }
 }
 
 export interface AntdTreeDataNode {
@@ -121,8 +150,7 @@ export const StockMaintenancePage: React.FC = () => {
   const navigate = useNavigate()
 
   // Tab State
-  const initialTab =
-    searchParams.get('tab') === 'product' || searchParams.has('product_id') ? 'product' : 'all'
+  const initialTab = searchParams.get('tab') === 'all' ? 'all' : 'product'
   const [activeTab, setActiveTab] = useState<'all' | 'product'>(initialTab)
 
   // Status Filter for All Inventory tab ('sellable' | 'damaged' | null)
@@ -153,7 +181,17 @@ export const StockMaintenancePage: React.FC = () => {
   const initialProductId = searchParams.get('product_id') || undefined
   const [selectedProductId, setSelectedProductId] = useState<string | undefined>(initialProductId)
   const [productOptions, setProductOptions] = useState<
-    Array<{ value: string; label: React.ReactNode; searchStr: string; stock: number }>
+    Array<{
+      value: string
+      label: React.ReactNode
+      searchStr: string
+      stock: number
+      name: string
+      sku: string
+      category_name: string
+      brand_name: string
+      image_url?: string
+    }>
   >([])
   const [searchingProducts, setSearchingProducts] = useState(false)
   const [mappingData, setMappingData] = useState<StockMappingResponse | null>(null)
@@ -204,20 +242,25 @@ export const StockMaintenancePage: React.FC = () => {
   const [adjustLoading, setAdjustLoading] = useState(false)
   const [selectedItemForAdjust, setSelectedItemForAdjust] = useState<MaintainableStockRecord | null>(null)
   const [adjustForm] = Form.useForm()
+  const [adjustmentReasonOptions, setAdjustmentReasonOptions] = useState<{ label: string; value: string }[]>([])
 
   // Load masters on mount
   useEffect(() => {
     const fetchMasters = async () => {
       try {
-        const [treeRes, condRes] = await Promise.all([
+        const [treeRes, condRes, lovReasons] = await Promise.all([
           apiClient.get('/locations?format=tree'),
           apiClient.get('/stock-conditions'),
+          lovApi.getItems('adjustment_reason', true).catch(() => []),
         ])
         const rawTree = treeRes.data.data || []
         setLocationTree(mapLocationTreeToTreeData(rawTree))
         setConditions(condRes.data.data || [])
+        if (lovReasons && lovReasons.length > 0) {
+          setAdjustmentReasonOptions(lovReasons.map((r: any) => ({ label: r.label, value: r.value })))
+        }
       } catch (e) {
-        console.error('Failed to load locations or conditions', e)
+        console.error('Failed to load locations, conditions, or adjustment reasons', e)
       }
     }
     fetchMasters()
@@ -298,10 +341,19 @@ export const StockMaintenancePage: React.FC = () => {
 
         const opts = items.map((p: any) => {
           const stock = Number(p.total_stock || 0)
+          const primarySku = p.sku || (p.variants?.[0]?.sku) || ''
+          const catName = p.category?.name || p.category_name || ''
+          const brName = p.brand?.name || p.brand_name || ''
+          const imgUrl = p.primary_image_url || p.images?.[0]?.file_url || p.image_url || null
           return {
             value: p.id,
             stock,
-            searchStr: `${p.name} ${p.sku || ''} ${p.model || ''}`,
+            name: p.name,
+            sku: primarySku,
+            category_name: catName,
+            brand_name: brName,
+            image_url: imgUrl,
+            searchStr: `${p.name} ${primarySku} ${p.model || ''}`,
             label: (
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <div>
@@ -315,9 +367,9 @@ export const StockMaintenancePage: React.FC = () => {
                   >
                     {stock > 0 ? `${stock} in store` : '0 units'}
                   </Tag>
-                  {p.sku && (
+                  {primarySku && (
                     <Tag color="blue" style={{ fontFamily: 'monospace', fontSize: '11px', margin: 0 }}>
-                      {p.sku}
+                      {primarySku}
                     </Tag>
                   )}
                 </Space>
@@ -327,9 +379,9 @@ export const StockMaintenancePage: React.FC = () => {
         })
         setProductOptions(opts)
 
-        // Default to first stocked product if no product was specified
-        if (!selectedProductId && items.length > 0) {
-          setSelectedProductId(items[0].id)
+        // Only select if specified in URL query params
+        if (initialProductId) {
+          setSelectedProductId(initialProductId)
         }
       })
       .catch(() => {})
@@ -344,10 +396,19 @@ export const StockMaintenancePage: React.FC = () => {
       const items = res.data.data || []
       const opts = items.map((p: any) => {
         const stock = Number(p.total_stock || 0)
+        const primarySku = p.sku || (p.variants?.[0]?.sku) || ''
+        const catName = p.category?.name || p.category_name || ''
+        const brName = p.brand?.name || p.brand_name || ''
+        const imgUrl = p.primary_image_url || p.images?.[0]?.file_url || p.image_url || null
         return {
           value: p.id,
           stock,
-          searchStr: `${p.name} ${p.sku || ''} ${p.model || ''}`,
+          name: p.name,
+          sku: primarySku,
+          category_name: catName,
+          brand_name: brName,
+          image_url: imgUrl,
+          searchStr: `${p.name} ${primarySku} ${p.model || ''}`,
           label: (
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <div>
@@ -361,9 +422,9 @@ export const StockMaintenancePage: React.FC = () => {
                 >
                   {stock > 0 ? `${stock} in store` : '0 units'}
                 </Tag>
-                {p.sku && (
+                {primarySku && (
                   <Tag color="blue" style={{ fontFamily: 'monospace', fontSize: '11px', margin: 0 }}>
-                    {p.sku}
+                    {primarySku}
                   </Tag>
                 )}
               </Space>
@@ -601,11 +662,12 @@ export const StockMaintenancePage: React.FC = () => {
   const handleOpenAdjustModal = (record: MaintainableStockRecord) => {
     setSelectedItemForAdjust(record)
     adjustForm.resetFields()
+    const defaultReason = adjustmentReasonOptions[0]?.value || 'PHYSICAL_COUNT'
     adjustForm.setFieldsValue({
       adjust_type: 'set_actual',
       actual_quantity: record.quantity,
       delta_quantity: 0,
-      reason_code: 'PHYSICAL_COUNT',
+      reason_code: defaultReason,
       notes: '',
     })
     setAdjustModalOpen(true)
@@ -808,7 +870,7 @@ export const StockMaintenancePage: React.FC = () => {
     },
   ]
 
-  // --- TAB 2 (PRODUCT ALLOCATION) COLUMNS ---
+  // --- TAB 2 (PRODUCT ALLOCATION) DATA & FILTERS ---
   const locationsList = mappingData?.locations || []
   const totalStock = mappingData?.summary?.total_stock || 0
   const availableToSell = mappingData?.summary?.available_to_sell || 0
@@ -817,16 +879,55 @@ export const StockMaintenancePage: React.FC = () => {
     .reduce((sum, loc) => sum + Number(loc.quantity), 0)
   const uniqueLocationsCount = new Set(locationsList.map((loc) => loc.location_id)).size
 
+  // Tab 2 Inline Table Filters
+  const [locFilter, setLocFilter] = useState<string>('all')
+  const [condFilter, setCondFilter] = useState<string>('all')
+
+  const uniqueLocationOptions = useMemo(() => {
+    const map = new Map<string, string>()
+    locationsList.forEach((loc) => {
+      if (loc.location_id && !map.has(loc.location_id)) {
+        map.set(loc.location_id, cleanLocationName(loc.location_name))
+      }
+    })
+    return Array.from(map.entries()).map(([id, name]) => ({
+      value: id,
+      label: name,
+    }))
+  }, [locationsList])
+
+  const uniqueConditionOptions = useMemo(() => {
+    const map = new Map<string, string>()
+    locationsList.forEach((loc) => {
+      if (loc.condition_id && !map.has(loc.condition_id)) {
+        map.set(loc.condition_id, loc.condition_name)
+      }
+    })
+    return Array.from(map.entries()).map(([id, name]) => ({
+      value: id,
+      label: name,
+    }))
+  }, [locationsList])
+
+  const filteredLocationsList = useMemo(() => {
+    return locationsList.filter((item) => {
+      if (locFilter !== 'all' && item.location_id !== locFilter) return false
+      if (condFilter !== 'all' && item.condition_id !== condFilter) return false
+      return true
+    })
+  }, [locationsList, locFilter, condFilter])
+
   const productLocationColumns = [
     {
-      title: 'Location (Showroom / Godown)',
+      title: 'Location',
       dataIndex: 'location_name',
       key: 'location_name',
+      onHeaderCell: () => ({ style: { padding: '8px 16px', whiteSpace: 'nowrap', fontWeight: 600, fontSize: '12.5px' } }),
       render: (_: any, record: StockMappingLocation) => (
         <Space direction="horizontal" size={8}>
           <ApartmentOutlined style={{ color: '#0284c7', fontSize: '16px' }} />
           <div>
-            <div style={{ fontWeight: 600, color: '#0f172a', fontSize: '14px' }}>
+            <div style={{ fontWeight: 600, color: '#0f172a', fontSize: '13.5px' }}>
               {cleanLocationName(record.location_name)}
             </div>
             {record.location_code && (
@@ -839,8 +940,9 @@ export const StockMaintenancePage: React.FC = () => {
       ),
     },
     {
-      title: 'Variant & SKU',
+      title: 'Variant / SKU',
       key: 'variant',
+      onHeaderCell: () => ({ style: { padding: '8px 16px', whiteSpace: 'nowrap', fontWeight: 600, fontSize: '12.5px' } }),
       render: (_: any, record: StockMappingLocation) => (
         <div>
           <div style={{ fontWeight: 600, color: '#1e293b', fontSize: '13px' }}>
@@ -848,9 +950,9 @@ export const StockMaintenancePage: React.FC = () => {
               ? record.variant_name
               : mappingData?.product.name}
           </div>
-          <Tag color="default" style={{ fontFamily: 'monospace', fontSize: '11px', marginTop: 2 }}>
+          <div style={{ fontFamily: 'monospace', fontSize: '11px', color: '#475569', marginTop: 1 }}>
             {record.sku}
-          </Tag>
+          </div>
         </div>
       ),
     },
@@ -858,12 +960,14 @@ export const StockMaintenancePage: React.FC = () => {
       title: 'Condition',
       dataIndex: 'condition_name',
       key: 'condition_name',
+      onHeaderCell: () => ({ style: { padding: '8px 16px', whiteSpace: 'nowrap', fontWeight: 600, fontSize: '12.5px' } }),
       render: (condName: string, record: StockMappingLocation) => {
         const isGood = record.is_sellable
         const isDamaged = condName.toLowerCase().includes('damage')
-        const color = isGood ? 'success' : isDamaged ? 'error' : 'purple'
+        const isSample = condName.toLowerCase().includes('sample') || condName.toLowerCase().includes('display')
+        const color = isGood ? 'success' : isDamaged ? 'error' : isSample ? 'warning' : 'purple'
         return (
-          <Tag color={color} style={{ fontWeight: 600, padding: '2px 8px' }}>
+          <Tag color={color} style={{ fontWeight: 600, padding: '2px 8px', borderRadius: 4 }}>
             {condName}
           </Tag>
         )
@@ -874,29 +978,35 @@ export const StockMaintenancePage: React.FC = () => {
       dataIndex: 'quantity',
       key: 'quantity',
       align: 'right' as const,
+      onHeaderCell: () => ({ style: { padding: '8px 16px', whiteSpace: 'nowrap', fontWeight: 600, fontSize: '12.5px' } }),
       render: (qty: number) => (
         <div style={{ textAlign: 'right' }}>
-          <span style={{ fontSize: '17px', fontWeight: 800, color: '#0f172a' }}>
+          <span style={{ fontSize: '16px', fontWeight: 800, color: '#0f172a' }}>
             {Number(qty).toLocaleString()}
           </span>
-          <span style={{ fontSize: '12px', color: '#64748b', marginLeft: 4 }}>units</span>
+          <span style={{ fontSize: '12px', color: '#64748b', marginLeft: 4 }}>
+            {Number(qty) === 1 ? 'unit' : 'units'}
+          </span>
         </div>
       ),
     },
     {
-      title: 'Commercial Status',
-      key: 'sellable',
-      render: (_: any, record: StockMappingLocation) => (
-        <Tag color={record.is_sellable && Number(record.quantity) > 0 ? 'green' : 'default'} style={{ fontWeight: 600 }}>
-          {record.is_sellable ? 'Available to Sell' : 'Non-Sellable / Display'}
-        </Tag>
+      title: 'Last Updated',
+      dataIndex: 'updated_at',
+      key: 'updated_at',
+      onHeaderCell: () => ({ style: { padding: '8px 16px', whiteSpace: 'nowrap', fontWeight: 600, fontSize: '12.5px' } }),
+      render: (val: string) => (
+        <span style={{ fontSize: '12px', color: '#475569', whiteSpace: 'nowrap' }}>
+          {formatStockDate(val)}
+        </span>
       ),
     },
     {
-      title: 'Stock Operations',
+      title: 'Actions',
       key: 'actions',
       align: 'center' as const,
-      width: 320,
+      width: 310,
+      onHeaderCell: () => ({ style: { padding: '8px 16px', whiteSpace: 'nowrap', fontWeight: 600, fontSize: '12.5px' } }),
       render: (_: any, record: StockMappingLocation) => {
         const unifiedItem: MaintainableStockRecord = {
           id: record.id,
@@ -953,7 +1063,7 @@ export const StockMaintenancePage: React.FC = () => {
                 icon={<PlusOutlined />}
                 onClick={() => handleOpenAllocateModal(record)}
               >
-                Add
+                + Add
               </Button>
             </Tooltip>
           </Space>
@@ -964,25 +1074,71 @@ export const StockMaintenancePage: React.FC = () => {
 
   const isBalancesFiltered = balancesSearch || filterLocationId || filterConditionId || statFilter !== null
 
+  const selectedProductOption = useMemo(() => {
+    return productOptions.find((p) => p.value === selectedProductId)
+  }, [productOptions, selectedProductId])
+
+  const productImage = mappingData?.product?.image_url || selectedProductOption?.image_url || null
+  const primarySku = mappingData?.product?.variants?.[0]?.sku || selectedProductOption?.sku || ''
+  const categoryName = mappingData?.product?.category_name || selectedProductOption?.category_name || ''
+  const brandName = mappingData?.product?.brand_name || selectedProductOption?.brand_name || ''
+  const [productSearchText, setProductSearchText] = useState('')
+
   return (
     <div style={{ padding: '0px', maxWidth: '1400px', margin: '0 auto' }}>
       {/* Header bar */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-        <div>
-          <Title level={4} style={{ margin: 0, fontWeight: 700, color: '#0f172a' }}>
-            Stock Maintenance
-          </Title>
-          <Text type="secondary" style={{ fontSize: '13px' }}>
-            Centralized hub to view store inventory, transfer stock across godowns, reclassify conditions, and perform physical audit adjustments.
-          </Text>
-        </div>
-        <Space>
+      <div
+        style={{
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          marginBottom: 16,
+          flexWrap: 'wrap',
+          gap: 12,
+        }}
+      >
+        <Space align="center" size={12}>
+          <div
+            style={{
+              width: 40,
+              height: 40,
+              borderRadius: 8,
+              background: '#eff6ff',
+              border: '1px solid #dbeafe',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+            }}
+          >
+            <InboxOutlined style={{ fontSize: 22, color: '#2563eb' }} />
+          </div>
+          <div>
+            <Title level={4} style={{ margin: 0, fontWeight: 700, color: '#0f172a' }}>
+              Stock Maintenance - Product- Location wise
+            </Title>
+            <Text type="secondary" style={{ fontSize: '13px' }}>
+              See where a product is stored across your locations.
+            </Text>
+          </div>
+        </Space>
+        <Space size={10}>
+          <Segmented
+            value={activeTab}
+            onChange={(val) => handleTabChange(val as 'product' | 'all')}
+            options={[
+              { label: 'Product View', value: 'product', icon: <ShopOutlined /> },
+              { label: 'All Store Inventory', value: 'all', icon: <ApartmentOutlined /> },
+            ]}
+          />
           <Button
             icon={<ReloadOutlined />}
             loading={balancesLoading || loadingMapping}
             onClick={() => {
-              fetchBalances()
-              if (selectedProductId) loadProductMapping(selectedProductId)
+              if (activeTab === 'product' && selectedProductId) {
+                loadProductMapping(selectedProductId)
+              } else {
+                fetchBalances()
+              }
             }}
           >
             Refresh
@@ -990,381 +1146,491 @@ export const StockMaintenancePage: React.FC = () => {
         </Space>
       </div>
 
-      {/* Tabs: Tab 1 = All Inventory | Tab 2 = By Product Maintenance */}
-      <Tabs
-        activeKey={activeTab}
-        onChange={handleTabChange}
-        type="card"
-        style={{ marginBottom: 16 }}
-        items={[
-          {
-            key: 'all',
-            label: (
-              <Space>
-                <InboxOutlined />
-                <span>All Store Inventory</span>
-                <Tag color="blue" style={{ borderRadius: 10, margin: 0, padding: '0 8px', fontSize: '11px' }}>
-                  {summary.total_on_hand.toLocaleString()} units
-                </Tag>
-              </Space>
-            ),
-            children: (
-              <div>
-                {/* Metric Strip for Tab 1 - Store-wide KPI cards */}
-                <Row gutter={[12, 12]} style={{ marginBottom: 16 }}>
-                  <Col xs={12} sm={6}>
-                    <ThinStatCard
-                      label="Total Units in Store"
-                      value={summary.total_on_hand}
-                      accentColor="#2563eb"
-                      selected={statFilter === null}
-                      onClick={() => handleStatFilterChange(null)}
-                    />
-                  </Col>
-                  <Col xs={12} sm={6}>
-                    <ThinStatCard
-                      label="Available to Sell"
-                      value={summary.sellable_units}
-                      accentColor="#16a34a"
-                      selected={statFilter === 'sellable'}
-                      onClick={() => handleStatFilterChange('sellable')}
-                    />
-                  </Col>
-                  <Col xs={12} sm={6}>
-                    <ThinStatCard
-                      label="Floor Sample / Damaged"
-                      value={summary.display_damaged_units}
-                      accentColor="#ea580c"
-                      selected={statFilter === 'damaged'}
-                      onClick={() => handleStatFilterChange('damaged')}
-                    />
-                  </Col>
-                  <Col xs={12} sm={6}>
-                    <ThinStatCard
-                      label="Stocked Products"
-                      value={21}
-                      accentColor="#9333ea"
-                      onClick={() => navigate('/products?stock_status=in_stock')}
-                    />
-                  </Col>
-                </Row>
+      {/* Universal Top Product Search Selector */}
+      <ProductSearchSelector
+        value={selectedProductId}
+        searchText={activeTab === 'all' ? balancesSearch : undefined}
+        onSearchTextChange={(text) => {
+          if (activeTab === 'all') {
+            setBalancesSearch(text)
+            setBalancesPage(1)
+          }
+        }}
+        onSelectProduct={(val) => {
+          if (val) {
+            handleMaintainProduct(val)
+          } else {
+            setSelectedProductId(undefined)
+            setMappingData(null)
+            setBalancesSearch('')
+            setSearchParams({ tab: 'all' })
+            setActiveTab('all')
+          }
+        }}
+        onClear={() => {
+          handleClearBalancesFilters()
+          setSelectedProductId(undefined)
+          setMappingData(null)
+          setSearchParams({ tab: 'all' })
+          setActiveTab('all')
+        }}
+      />
 
-                {/* Filter Toolbar for All Inventory */}
-                <Card
-                  style={{
-                    borderRadius: 8,
-                    marginBottom: 14,
-                    border: '1px solid #e2e8f0',
+      {activeTab === 'all' ? (
+        <div>
+          {/* Metric Strip for Tab 1 - Store-wide KPI cards */}
+          <Row gutter={[12, 12]} style={{ marginBottom: 16 }}>
+            <Col xs={12} sm={6}>
+              <ThinStatCard
+                label="Total Units in Store"
+                value={summary.total_on_hand}
+                accentColor="#2563eb"
+                selected={statFilter === null}
+                onClick={() => handleStatFilterChange(null)}
+              />
+            </Col>
+            <Col xs={12} sm={6}>
+              <ThinStatCard
+                label="Available to Sell"
+                value={summary.sellable_units}
+                accentColor="#16a34a"
+                selected={statFilter === 'sellable'}
+                onClick={() => handleStatFilterChange('sellable')}
+              />
+            </Col>
+            <Col xs={12} sm={6}>
+              <ThinStatCard
+                label="Floor Sample / Damaged"
+                value={summary.display_damaged_units}
+                accentColor="#ea580c"
+                selected={statFilter === 'damaged'}
+                onClick={() => handleStatFilterChange('damaged')}
+              />
+            </Col>
+            <Col xs={12} sm={6}>
+              <ThinStatCard
+                label="Stocked Products"
+                value={21}
+                accentColor="#9333ea"
+                onClick={() => navigate('/products?stock_status=in_stock')}
+              />
+            </Col>
+          </Row>
+
+          {/* Filter Toolbar for All Inventory */}
+          <Card
+            style={{
+              borderRadius: 8,
+              marginBottom: 14,
+              border: '1px solid #e2e8f0',
+            }}
+            bodyStyle={{ padding: '12px 16px' }}
+          >
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 10 }}>
+              <Space wrap size={10} align="center">
+                <TreeSelect
+                  placeholder="All Locations"
+                  allowClear
+                  style={{ width: 240 }}
+                  treeData={locationTree}
+                  value={filterLocationId}
+                  onChange={(val) => {
+                    setFilterLocationId(val)
+                    setBalancesPage(1)
                   }}
-                  bodyStyle={{ padding: '12px 16px' }}
-                >
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 10 }}>
-                    <Space wrap size={10} align="center">
-                      <Input
-                        placeholder="Search product, SKU, variant..."
-                        prefix={<SearchOutlined style={{ color: '#94a3b8' }} />}
-                        value={balancesSearch}
-                        onChange={(e) => setBalancesSearch(e.target.value)}
-                        allowClear
-                        style={{ width: 260 }}
-                      />
+                  showSearch
+                  treeDefaultExpandAll
+                  popupMatchSelectWidth={false}
+                  dropdownMatchSelectWidth={false}
+                  dropdownStyle={{
+                    minWidth: 340,
+                    maxWidth: 520,
+                    maxHeight: 400,
+                    overflowX: 'auto',
+                    whiteSpace: 'nowrap',
+                  }}
+                  treeNodeFilterProp="titleText"
+                  filterTreeNode={(search, item: any) =>
+                    (item?.titleText || '').toLowerCase().includes(search.toLowerCase().trim())
+                  }
+                />
 
-                      <TreeSelect
-                        placeholder="All Locations"
-                        allowClear
-                        style={{ width: 240 }}
-                        treeData={locationTree}
-                        value={filterLocationId}
-                        onChange={(val) => {
-                          setFilterLocationId(val)
-                          setBalancesPage(1)
-                        }}
-                        showSearch
-                        treeDefaultExpandAll
-                        popupMatchSelectWidth={false}
-                        dropdownMatchSelectWidth={false}
-                        dropdownStyle={{
-                          minWidth: 340,
-                          maxWidth: 520,
-                          maxHeight: 400,
-                          overflowX: 'auto',
-                          whiteSpace: 'nowrap',
-                        }}
-                        treeNodeFilterProp="titleText"
-                        filterTreeNode={(search, item: any) =>
-                          (item?.titleText || '').toLowerCase().includes(search.toLowerCase().trim())
-                        }
-                      />
+                <Select
+                  placeholder="All Conditions"
+                  allowClear
+                  style={{ width: 170 }}
+                  value={filterConditionId}
+                  onChange={(val) => {
+                    setFilterConditionId(val)
+                    setBalancesPage(1)
+                  }}
+                  popupMatchSelectWidth={false}
+                  dropdownMatchSelectWidth={false}
+                  dropdownStyle={{ minWidth: 280, whiteSpace: 'nowrap' }}
+                  options={conditions.map((c) => ({
+                    value: c.id,
+                    label: `${c.name} ${c.is_sellable ? '(Sellable)' : '(Non-Sellable)'}`,
+                  }))}
+                />
 
-                      <Select
-                        placeholder="All Conditions"
-                        allowClear
-                        style={{ width: 170 }}
-                        value={filterConditionId}
-                        onChange={(val) => {
-                          setFilterConditionId(val)
-                          setBalancesPage(1)
-                        }}
-                        options={conditions.map((c) => ({
-                          value: c.id,
-                          label: `${c.name} ${c.is_sellable ? '(Sellable)' : '(Non-Sellable)'}`,
-                        }))}
-                      />
+                {isBalancesFiltered && (
+                  <Button
+                    type="link"
+                    size="small"
+                    danger
+                    onClick={handleClearBalancesFilters}
+                    style={{ padding: 0 }}
+                  >
+                    Reset Filters
+                  </Button>
+                )}
+              </Space>
 
-                      {isBalancesFiltered && (
-                        <Button
-                          type="link"
-                          size="small"
-                          danger
-                          onClick={handleClearBalancesFilters}
-                          style={{ padding: 0 }}
-                        >
-                          Reset Filters
-                        </Button>
-                      )}
-                    </Space>
+              <Tag color="default" style={{ fontSize: '12px', padding: '2px 8px' }}>
+                Showing {balances.length} of {balancesTotal} stock records
+              </Tag>
+            </div>
+          </Card>
 
-                    <Tag color="default" style={{ fontSize: '12px', padding: '2px 8px' }}>
-                      Showing {balances.length} of {balancesTotal} stock records
-                    </Tag>
-                  </div>
-                </Card>
-
-                {/* All Balances Table */}
-                <Card style={{ borderRadius: 8, border: '1px solid #e5e7eb' }} bodyStyle={{ padding: 0 }}>
-                  <Table
-                    rowKey="id"
-                    columns={allInventoryColumns}
-                    dataSource={balances}
-                    loading={balancesLoading}
-                    pagination={{
-                      current: balancesPage,
-                      pageSize: balancesPageSize,
-                      total: balancesTotal,
-                      showSizeChanger: true,
-                      pageSizeOptions: ['20', '25', '50', '100'],
-                      showTotal: (total, range) => `${range[0]}-${range[1]} of ${total} records`,
-                      onChange: (p, ps) => {
-                        setBalancesPage(p)
-                        setBalancesPageSize(ps)
-                      },
-                    }}
-                    locale={{
-                      emptyText: (
-                        <Empty
-                          description="No stock records match the selected filters."
-                          style={{ padding: '36px 0' }}
-                        >
-                          {isBalancesFiltered && (
-                            <Button type="primary" onClick={handleClearBalancesFilters}>
-                              Clear Filters
-                            </Button>
-                          )}
-                        </Empty>
-                      ),
-                    }}
-                  />
-                </Card>
+          {/* All Balances Table */}
+          <Card style={{ borderRadius: 8, border: '1px solid #e5e7eb' }} bodyStyle={{ padding: 0 }}>
+            <Table
+              rowKey="id"
+              columns={allInventoryColumns}
+              dataSource={balances}
+              loading={balancesLoading}
+              pagination={{
+                current: balancesPage,
+                pageSize: balancesPageSize,
+                total: balancesTotal,
+                showSizeChanger: true,
+                pageSizeOptions: ['20', '25', '50', '100'],
+                showTotal: (total, range) => `${range[0]}-${range[1]} of ${total} records`,
+                onChange: (p, ps) => {
+                  setBalancesPage(p)
+                  setBalancesPageSize(ps)
+                },
+              }}
+              locale={{
+                emptyText: (
+                  <Empty
+                    description="No stock records match the selected filters."
+                    style={{ padding: '36px 0' }}
+                  >
+                    {isBalancesFiltered && (
+                      <Button type="primary" onClick={handleClearBalancesFilters}>
+                        Clear Filters
+                      </Button>
+                    )}
+                  </Empty>
+                ),
+              }}
+            />
+          </Card>
+        </div>
+      ) : (
+        <div>
+          {/* ROW 2: Empty state OR Selected Product Summary */}
+          {!selectedProductId ? (
+            <Card
+              style={{
+                borderRadius: 8,
+                border: '1px dashed #cbd5e1',
+                background: '#ffffff',
+                textAlign: 'center',
+                padding: '50px 24px',
+                marginTop: 16,
+              }}
+            >
+              <div
+                style={{
+                  width: 64,
+                  height: 64,
+                  borderRadius: '50%',
+                  background: '#eff6ff',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  marginBottom: 16,
+                }}
+              >
+                <SearchOutlined style={{ fontSize: 28, color: '#2563eb' }} />
               </div>
-            ),
-          },
-          {
-            key: 'product',
-            label: (
-              <Space>
-                <ApartmentOutlined />
-                <span>By Product Maintenance</span>
-              </Space>
-            ),
-            children: (
-              <div>
-                {/* Product Selector Card */}
-                <Card
-                  style={{
-                    borderRadius: 8,
-                    marginBottom: 16,
-                    boxShadow: '0 1px 3px rgba(0,0,0,0.05)',
-                    background: '#ffffff',
-                  }}
-                  bodyStyle={{ padding: '16px 20px' }}
-                >
-                  <Row gutter={[16, 16]} align="middle">
-                    <Col xs={24} md={12}>
-                      <div style={{ marginBottom: 6 }}>
-                        <Text strong style={{ fontSize: '13px', color: '#334155' }}>
-                          Select Product to Maintain:
-                        </Text>
-                      </div>
-                      <Select
-                        showSearch
-                        allowClear
-                        placeholder="Search product name, SKU, or model..."
-                        value={undefined}
-                        onSearch={handleProductSearch}
-                        onChange={(val) => {
-                          if (val) {
-                            setSelectedProductId(val)
-                            setSearchParams({ tab: 'product', product_id: val })
-                          }
+              <Title level={4} style={{ color: '#0f172a', marginBottom: 6, fontWeight: 700 }}>
+                Search and select a product to view its stock across locations
+              </Title>
+              <Text type="secondary" style={{ fontSize: 14, maxWidth: 520, display: 'inline-block' }}>
+                Choose a product above to inspect exact physical counts, available sellable inventory, and locations holding units across all godowns and showrooms.
+              </Text>
+
+              {productOptions.length > 0 && (
+                <div style={{ marginTop: 24 }}>
+                  <div
+                    style={{
+                      fontSize: 12,
+                      fontWeight: 600,
+                      color: '#64748b',
+                      marginBottom: 10,
+                      textTransform: 'uppercase',
+                    }}
+                  >
+                    Quick select a stocked product:
+                  </div>
+                  <Space wrap size={8} style={{ justifyContent: 'center' }}>
+                    {productOptions.slice(0, 6).map((opt) => (
+                      <Button
+                        key={opt.value}
+                        size="middle"
+                        style={{ borderRadius: 16, fontSize: 13 }}
+                        onClick={() => {
+                          setSelectedProductId(opt.value)
+                          setProductSearchText('')
+                          setSearchParams({ tab: 'product', product_id: opt.value })
                         }}
-                        filterOption={false}
-                        loading={searchingProducts}
-                        style={{ width: '100%' }}
-                        size="large"
-                        options={productOptions}
-                        notFoundContent={searchingProducts ? 'Searching...' : 'No products found'}
-                      />
-                    </Col>
-                    <Col xs={24} md={12}>
-                      {mappingData?.product ? (
-                        <div
+                      >
+                        {opt.name}{' '}
+                        {opt.stock > 0 && (
+                          <span style={{ color: '#16a34a', fontWeight: 600, marginLeft: 4 }}>
+                            ({opt.stock} in store)
+                          </span>
+                        )}
+                      </Button>
+                    ))}
+                  </Space>
+                </div>
+              )}
+            </Card>
+          ) : (
+            <>
+              {/* ROW 2: Selected Product Summary (Horizontal Card) */}
+              <Card
+                style={{
+                  borderRadius: 8,
+                  marginBottom: 16,
+                  border: '1px solid #e2e8f0',
+                  background: '#ffffff',
+                  boxShadow: '0 1px 3px rgba(0,0,0,0.02)',
+                }}
+                bodyStyle={{ padding: '14px 20px' }}
+              >
+                <Row gutter={[20, 16]} align="middle">
+                  {/* Left: Thumbnail + Title + SKU */}
+                  <Col xs={24} md={10} lg={9}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+                      {productImage ? (
+                        <img
+                          src={productImage}
+                          alt={mappingData?.product.name || ''}
                           style={{
-                            background: '#f8fafc',
+                            width: 80,
+                            height: 64,
+                            borderRadius: 8,
+                            objectFit: 'cover',
                             border: '1px solid #e2e8f0',
-                            borderRadius: 6,
-                            padding: '10px 14px',
+                            background: '#f8fafc',
                           }}
-                        >
-                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 2 }}>
-                            <div style={{ fontSize: '12px', color: '#64748b' }}>
-                              Selected Product Profile:
-                            </div>
-                            <Button
-                              type="link"
-                              size="small"
-                              danger
-                              style={{ padding: 0, height: 'auto', fontSize: '12px' }}
-                              onClick={() => {
-                                setSelectedProductId(undefined)
-                                setSearchParams({ tab: 'product' })
-                              }}
-                            >
-                              Clear
-                            </Button>
-                          </div>
-                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                            <div>
-                              <span style={{ fontWeight: 700, color: '#0f172a', fontSize: '14px' }}>
-                                {mappingData.product.name}
-                              </span>
-                              {mappingData.product.category_name && (
-                                <Tag color="cyan" style={{ marginLeft: 8 }}>
-                                  {mappingData.product.category_name}
-                                </Tag>
-                              )}
-                              {mappingData.product.brand_name && (
-                                <Tag color="purple">{mappingData.product.brand_name}</Tag>
-                              )}
-                            </div>
-                            <Tag color="blue" style={{ fontSize: '12px', padding: '2px 8px' }}>
-                              {mappingData.product.variants.length} Variant(s)
-                            </Tag>
-                          </div>
-                        </div>
+                        />
                       ) : (
                         <div
                           style={{
-                            background: '#f8fafc',
-                            border: '1px dashed #cbd5e1',
-                            borderRadius: 6,
-                            padding: '12px 14px',
-                            color: '#64748b',
-                            fontSize: '13px',
-                            textAlign: 'center',
+                            width: 80,
+                            height: 64,
+                            borderRadius: 8,
+                            background: '#f1f5f9',
+                            border: '1px solid #e2e8f0',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            fontSize: 26,
                           }}
                         >
-                          Search and select any product on the left to view and maintain stock locations
+                          🛋️
                         </div>
                       )}
-                    </Col>
-                  </Row>
-                </Card>
-
-                {/* KPI Metric Strip for Selected Product */}
-                {selectedProductId && (
-                  <Row gutter={[12, 12]} style={{ marginBottom: 16 }}>
-                    <Col xs={12} sm={6}>
-                      <ThinStatCard
-                        label="Total Units in Store"
-                        value={totalStock}
-                        accentColor="#2563eb"
-                      />
-                    </Col>
-                    <Col xs={12} sm={6}>
-                      <ThinStatCard
-                        label="Available to Sell"
-                        value={availableToSell}
-                        accentColor="#16a34a"
-                      />
-                    </Col>
-                    <Col xs={12} sm={6}>
-                      <ThinStatCard
-                        label="Floor Sample / Damaged"
-                        value={nonSellable}
-                        accentColor="#ea580c"
-                      />
-                    </Col>
-                    <Col xs={12} sm={6}>
-                      <ThinStatCard
-                        label="Locations Holding Stock"
-                        value={uniqueLocationsCount}
-                        accentColor="#0284c7"
-                      />
-                    </Col>
-                  </Row>
-                )}
-
-                {/* Main Stock Table Card for Selected Product */}
-                <Card
-                  style={{ borderRadius: 8, border: '1px solid #e5e7eb' }}
-                  bodyStyle={{ padding: 0 }}
-                >
-                  <div
-                    style={{
-                      padding: '14px 20px',
-                      borderBottom: '1px solid #e5e7eb',
-                      display: 'flex',
-                      justifyContent: 'space-between',
-                      alignItems: 'center',
-                      background: '#fafafa',
-                    }}
-                  >
-                    <div>
-                      <Text strong style={{ fontSize: '14px', color: '#0f172a' }}>
-                        Physical Stock Breakdown Across Rooms & Godowns
-                      </Text>
-                      <div style={{ fontSize: '12px', color: '#64748b' }}>
-                        Use row actions to transfer, adjust counts, or reclassify condition.
+                      <div style={{ minWidth: 0, flex: 1 }}>
+                        <div
+                          style={{
+                            fontSize: '15.5px',
+                            fontWeight: 700,
+                            color: '#0f172a',
+                            lineHeight: 1.3,
+                            marginBottom: 4,
+                            overflow: 'hidden',
+                            textOverflow: 'ellipsis',
+                            whiteSpace: 'nowrap',
+                          }}
+                          title={mappingData?.product.name}
+                        >
+                          {mappingData?.product.name}
+                        </div>
+                        {primarySku && (
+                          <Tag
+                            style={{
+                              fontFamily: 'monospace',
+                              fontSize: '11px',
+                              background: '#f8fafc',
+                              border: '1px solid #cbd5e1',
+                              color: '#334155',
+                              margin: 0,
+                            }}
+                          >
+                            SKU: {primarySku}
+                          </Tag>
+                        )}
                       </div>
                     </div>
-                    {selectedProductId && (
-                      <Button
-                        type="primary"
-                        icon={<PlusOutlined />}
-                        onClick={() => handleOpenAllocateModal()}
-                      >
-                        + Allocate to Location
-                      </Button>
-                    )}
-                  </div>
+                  </Col>
 
-                  <Table
-                    rowKey="id"
-                    columns={productLocationColumns}
-                    dataSource={locationsList}
-                    loading={loadingMapping}
-                    pagination={false}
-                    locale={{
-                      emptyText: (
-                        <Empty
-                          description={
-                            selectedProductId
-                              ? 'No physical stock recorded in any location for this product.'
-                              : 'Select a product above to view and maintain stock.'
-                          }
-                          style={{ padding: '36px 0' }}
-                        >
-                          {selectedProductId && (
+                  {/* Right: 4 Compact Enclosed KPI Cards */}
+                  <Col xs={24} md={14} lg={15}>
+                    <Row gutter={[10, 10]}>
+                      <Col span={6}>
+                        <ThinStatCard
+                          label="Total Units"
+                          value={totalStock}
+                          accentColor="#2563eb"
+                        />
+                      </Col>
+
+                      <Col span={6}>
+                        <ThinStatCard
+                          label="Available to Sell"
+                          value={availableToSell}
+                          accentColor="#16a34a"
+                        />
+                      </Col>
+
+                      <Col span={6}>
+                        <ThinStatCard
+                          label="Non-Sellable"
+                          value={nonSellable}
+                          accentColor="#ea580c"
+                        />
+                      </Col>
+
+                      <Col span={6}>
+                        <ThinStatCard
+                          label="Locations"
+                          value={uniqueLocationsCount}
+                          accentColor="#7c3aed"
+                        />
+                      </Col>
+                    </Row>
+                  </Col>
+                </Row>
+              </Card>
+
+              {/* ROW 3: Brand & Category + Grid Filters Toolbar */}
+              <div
+                style={{
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                  marginBottom: 12,
+                  flexWrap: 'wrap',
+                  gap: 12,
+                }}
+              >
+                {/* Left: Brand & Category Badges */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap' }}>
+                  {brandName && (
+                    <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 13 }}>
+                      <span style={{ color: '#64748b', fontWeight: 600 }}>Brand:</span>
+                      <Tag
+                        color="purple"
+                        style={{
+                          fontSize: 12,
+                          fontWeight: 600,
+                          padding: '2px 10px',
+                          borderRadius: 4,
+                          margin: 0,
+                        }}
+                      >
+                        {brandName}
+                      </Tag>
+                    </div>
+                  )}
+
+                  {categoryName && (
+                    <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 13 }}>
+                      <span style={{ color: '#64748b', fontWeight: 600 }}>Category:</span>
+                      <Tag
+                        color="blue"
+                        style={{
+                          fontSize: 12,
+                          fontWeight: 600,
+                          padding: '2px 10px',
+                          borderRadius: 4,
+                          margin: 0,
+                        }}
+                      >
+                        {categoryName}
+                      </Tag>
+                    </div>
+                  )}
+                </div>
+
+                {/* Right: Location & Condition Filters, Refresh, Allocate Button */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+                  <Select
+                    value={locFilter}
+                    onChange={setLocFilter}
+                    style={{ width: 170 }}
+                    options={[{ value: 'all', label: 'All Locations' }, ...uniqueLocationOptions]}
+                  />
+
+                  <Select
+                    value={condFilter}
+                    onChange={setCondFilter}
+                    style={{ width: 160 }}
+                    popupMatchSelectWidth={false}
+                    dropdownMatchSelectWidth={false}
+                    dropdownStyle={{ minWidth: 280, whiteSpace: 'nowrap' }}
+                    options={[
+                      { value: 'all', label: 'All Conditions' },
+                      ...uniqueConditionOptions,
+                    ]}
+                  />
+
+                  <Button
+                    icon={<ReloadOutlined />}
+                    onClick={() => selectedProductId && loadProductMapping(selectedProductId)}
+                    title="Refresh stock across locations"
+                  />
+
+                  <Button
+                    type="primary"
+                    icon={<PlusOutlined />}
+                    onClick={() => handleOpenAllocateModal()}
+                  >
+                    Allocate to Location
+                  </Button>
+                </div>
+              </div>
+
+              {/* Table */}
+              <Card style={{ borderRadius: 8, border: '1px solid #e5e7eb', background: '#fff' }} bodyStyle={{ padding: 0 }}>
+                <Table
+                  rowKey={(r) => `${r.location_id}-${r.variant_id}-${r.condition_id}`}
+                  columns={productLocationColumns}
+                  dataSource={filteredLocationsList}
+                  loading={loadingMapping}
+                  pagination={{
+                    pageSize: 10,
+                    hideOnSinglePage: true,
+                    showSizeChanger: false,
+                  }}
+                  locale={{
+                    emptyText: (
+                      <Empty
+                        description={
+                          <div style={{ padding: '24px 0' }}>
+                            <div style={{ fontSize: 15, fontWeight: 600, color: '#0f172a', marginBottom: 6 }}>
+                              No stock records found for this product.
+                            </div>
+                            <div style={{ fontSize: 13, color: '#64748b', marginBottom: 14 }}>
+                              This item is currently not stored in any showroom, godown, or room.
+                            </div>
                             <Button
                               type="primary"
                               icon={<PlusOutlined />}
@@ -1372,17 +1638,38 @@ export const StockMaintenancePage: React.FC = () => {
                             >
                               Allocate Stock to Location
                             </Button>
-                          )}
-                        </Empty>
-                      ),
+                          </div>
+                        }
+                      />
+                    ),
+                  }}
+                />
+                {filteredLocationsList.length > 0 && (
+                  <div
+                    style={{
+                      padding: '12px 20px',
+                      borderTop: '1px solid #f1f5f9',
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      alignItems: 'center',
+                      background: '#fafafa',
                     }}
-                  />
-                </Card>
-              </div>
-            ),
-          },
-        ]}
-      />
+                  >
+                    <Text type="secondary" style={{ fontSize: '13px' }}>
+                      Showing {filteredLocationsList.length} stock{' '}
+                      {filteredLocationsList.length === 1 ? 'record' : 'records'} across{' '}
+                      {new Set(filteredLocationsList.map((r) => r.location_id)).size}{' '}
+                      {new Set(filteredLocationsList.map((r) => r.location_id)).size === 1
+                        ? 'location'
+                        : 'locations'}
+                    </Text>
+                  </div>
+                )}
+              </Card>
+            </>
+          )}
+        </div>
+      )}
 
       {/* ========================================================= */}
       {/* MODAL 1: Allocate / Add Units (Tab 2)                     */}
@@ -1434,6 +1721,10 @@ export const StockMaintenancePage: React.FC = () => {
                 rules={[{ required: true, message: 'Please select condition' }]}
               >
                 <Select
+                  placeholder="Select stock condition"
+                  popupMatchSelectWidth={false}
+                  dropdownMatchSelectWidth={false}
+                  dropdownStyle={{ minWidth: 280, whiteSpace: 'nowrap' }}
                   options={conditions.map((c) => ({
                     value: c.id,
                     label: c.name + (c.is_sellable ? ' (Sellable)' : ' (Non-Sellable)'),
@@ -1757,6 +2048,9 @@ export const StockMaintenancePage: React.FC = () => {
             >
               <Select
                 placeholder="Choose new condition (e.g. Display Sample, Damaged, Sellable)"
+                popupMatchSelectWidth={false}
+                dropdownMatchSelectWidth={false}
+                dropdownStyle={{ minWidth: 320, whiteSpace: 'nowrap' }}
                 options={conditions
                   .filter((c) => c.id !== selectedItemForCondition.condition_id)
                   .map((c) => ({
@@ -1876,11 +2170,18 @@ export const StockMaintenancePage: React.FC = () => {
               rules={[{ required: true, message: 'Select reason' }]}
             >
               <Select
-                options={[
-                  { label: 'Physical Stock Count / Annual Audit', value: 'PHYSICAL_COUNT' },
+                placeholder="Select adjustment reason"
+                popupMatchSelectWidth={false}
+                dropdownMatchSelectWidth={false}
+                dropdownStyle={{ minWidth: 320, whiteSpace: 'nowrap' }}
+                options={adjustmentReasonOptions.length > 0 ? adjustmentReasonOptions : [
+                  { label: 'Physical Stock Count / Audit', value: 'PHYSICAL_COUNT' },
                   { label: 'Damage / Broken Goods Write-off', value: 'DAMAGE' },
                   { label: 'Theft / Shrinkage Loss', value: 'THEFT_LOSS' },
                   { label: 'Found Unrecorded Stock', value: 'FOUND_STOCK' },
+                  { label: 'Damaged in Store / Display', value: 'DAMAGED_IN_STORE' },
+                  { label: 'Clerical Correction', value: 'CLERICAL_ERROR' },
+                  { label: 'Display Sample Conversion', value: 'SAMPLE' },
                   { label: 'Other Operational Adjustment', value: 'OTHER' },
                 ]}
               />

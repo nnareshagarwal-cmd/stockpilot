@@ -31,6 +31,7 @@ import {
 } from '@ant-design/icons'
 import { stockApi, StockBalanceItem } from '../../api/stock'
 import apiClient from '../../api/client'
+import { lovApi } from '../../api/lov'
 import { ThinStatCard } from '../../components/common/ThinStatCard'
 
 const { Title, Text } = Typography
@@ -101,18 +102,23 @@ export const StockBalancesPage: React.FC = () => {
   const [transferForm] = Form.useForm()
   const [conditionForm] = Form.useForm()
   const [adjustmentForm] = Form.useForm()
+  const [adjustmentReasonOptions, setAdjustmentReasonOptions] = useState<{ label: string; value: string }[]>([])
 
   const fetchLocationsAndConditions = async () => {
     try {
-      const [treeRes, flatRes, condRes] = await Promise.all([
+      const [treeRes, flatRes, condRes, lovReasons] = await Promise.all([
         apiClient.get('/locations?format=tree'),
         apiClient.get('/locations'),
         apiClient.get('/stock-conditions'),
+        lovApi.getItems('adjustment_reason', true).catch(() => []),
       ])
       const rawTree = treeRes.data.data || []
       setLocationTree(mapLocationTreeToTreeData(rawTree))
       setLocations(flatRes.data.data || [])
       setConditions(condRes.data.data || [])
+      if (lovReasons && lovReasons.length > 0) {
+        setAdjustmentReasonOptions(lovReasons.map((r: any) => ({ label: r.label, value: r.value })))
+      }
     } catch (e) {
       console.error('Failed to load master filters', e)
     }
@@ -579,6 +585,8 @@ export const StockBalancesPage: React.FC = () => {
               danger
               onClick={() => {
                 adjustmentForm.resetFields()
+                const defaultReason = adjustmentReasonOptions[0]?.value || 'PHYSICAL_COUNT'
+                adjustmentForm.setFieldsValue({ reason_code: defaultReason })
                 setAdjustmentModalOpen(true)
               }}
             >
@@ -838,12 +846,15 @@ export const StockBalancesPage: React.FC = () => {
           >
             <Select
               placeholder="Select reason code"
-              options={[
-                { label: 'Damaged in Store', value: 'DAMAGED_IN_STORE' },
-                { label: 'Physical Count Discrepancy', value: 'PHYSICAL_COUNT_DISCREPANCY' },
+              options={adjustmentReasonOptions.length > 0 ? adjustmentReasonOptions : [
+                { label: 'Physical Stock Count / Audit', value: 'PHYSICAL_COUNT' },
+                { label: 'Damage / Broken Goods Write-off', value: 'DAMAGE' },
+                { label: 'Theft / Shrinkage Loss', value: 'THEFT_LOSS' },
+                { label: 'Found Unrecorded Stock', value: 'FOUND_STOCK' },
+                { label: 'Damaged in Store / Display', value: 'DAMAGED_IN_STORE' },
                 { label: 'Clerical Correction', value: 'CLERICAL_ERROR' },
                 { label: 'Display Sample Conversion', value: 'SAMPLE' },
-                { label: 'Other', value: 'OTHER' },
+                { label: 'Other Operational Adjustment', value: 'OTHER' },
               ]}
             />
           </Form.Item>

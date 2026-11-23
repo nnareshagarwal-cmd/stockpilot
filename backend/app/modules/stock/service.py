@@ -4,7 +4,7 @@ from decimal import Decimal
 from typing import Optional, List, Tuple
 from sqlalchemy import select, func, and_, or_, case
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload
+from sqlalchemy.orm import selectinload, aliased
 
 from app.common.exceptions import ValidationException, NotFoundException
 from app.modules.stock.models import (
@@ -16,7 +16,7 @@ from app.modules.stock.models import (
     StockAdjustment,
 )
 from app.modules.catalogue.models import ProductVariant, Product
-from app.modules.settings.models import Location, StockCondition, Category
+from app.modules.settings.models import Location, StockCondition, Category, Brand
 from app.modules.auth.models import User
 from app.modules.stock.schemas import (
     OpeningStockBatchRequest,
@@ -175,6 +175,75 @@ class StockService:
 
         await self.session.commit()
         return movements
+
+    async def _consume_stock_layers_fifo(
+        self,
+        tenant_id: uuid.UUID,
+        variant_id: uuid.UUID,
+        qty_to_deduct: Decimal,
+    ) -> None:
+        """Consumes oldest active FIFO receipt layers when stock is deducted or written off."""
+        if qty_to_deduct <= Decimal("0.000"):
+            return
+
+        stmt = (
+            select(StockLayer)
+            .where(
+                StockLayer.tenant_id == tenant_id,
+                StockLayer.variant_id == variant_id,
+                StockLayer.remaining_quantity > 0,
+            )
+            .order_by(StockLayer.received_date.asc(), StockLayer.created_at.asc())
+            .with_for_update()
+        )
+        res = await self.session.execute(stmt)
+        layers = res.scalars().all()
+        remaining = qty_to_deduct
+
+        for layer in layers:
+            if remaining <= Decimal("0"):
+                break
+            if layer.remaining_quantity <= remaining:
+                remaining -= layer.remaining_quantity
+                layer.remaining_quantity = Decimal("0.000")
+            else:
+                layer.remaining_quantity -= remaining
+                remaining = Decimal("0.000")
+        await self.session.flush()
+
+    async def _add_stock_layer(
+        self,
+        tenant_id: uuid.UUID,
+        variant_id: uuid.UUID,
+        location_id: uuid.UUID,
+        condition_id: uuid.UUID,
+        quantity: Decimal,
+        unit_cost: Optional[Decimal] = None,
+        received_date: Optional[date] = None,
+        movement_id: Optional[uuid.UUID] = None,
+    ) -> StockLayer:
+        """Creates a new FIFO receipt layer for incoming stock additions."""
+        if unit_cost is None:
+            v_res = await self.session.execute(
+                select(ProductVariant.purchase_price).where(ProductVariant.id == variant_id)
+            )
+            unit_cost = v_res.scalar() or Decimal("0.00")
+
+        rec_date = received_date or date.today()
+        layer = StockLayer(
+            tenant_id=tenant_id,
+            variant_id=variant_id,
+            location_id=location_id,
+            condition_id=condition_id,
+            initial_quantity=quantity,
+            remaining_quantity=quantity,
+            unit_cost=unit_cost,
+            received_date=rec_date,
+            movement_id=movement_id,
+        )
+        self.session.add(layer)
+        await self.session.flush()
+        return layer
 
     async def create_transfer(
         self,
@@ -388,7 +457,7 @@ class StockService:
         self.session.add(adjustment)
         await self.session.flush()
 
-        await self.record_movement(
+        movement, _ = await self.record_movement(
             tenant_id=tenant_id,
             movement_type="ADJUSTMENT",
             variant_id=adj_data.variant_id,
@@ -401,6 +470,19 @@ class StockService:
             reference_number=adj_num,
             notes=f"Reason: {adj_data.reason_code} - {adj_data.notes or ''}",
         )
+
+        # Synchronize FIFO receipt layers
+        if adj_data.quantity_delta < Decimal("0"):
+            await self._consume_stock_layers_fifo(tenant_id, adj_data.variant_id, abs(adj_data.quantity_delta))
+        elif adj_data.quantity_delta > Decimal("0"):
+            await self._add_stock_layer(
+                tenant_id=tenant_id,
+                variant_id=adj_data.variant_id,
+                location_id=adj_data.location_id,
+                condition_id=adj_data.condition_id,
+                quantity=adj_data.quantity_delta,
+                movement_id=movement.id,
+            )
 
         await self.session.commit()
         return adjustment
@@ -426,12 +508,37 @@ class StockService:
         self,
         tenant_id: uuid.UUID,
         status: Optional[str] = None,
+        product_id: Optional[uuid.UUID] = None,
+        search: Optional[str] = None,
         limit: int = 50,
         offset: int = 0,
     ) -> Tuple[List[StockTransfer], int]:
         query = select(StockTransfer).where(StockTransfer.tenant_id == tenant_id)
         if status:
             query = query.where(StockTransfer.status == status)
+        if product_id:
+            query = query.where(
+                StockTransfer.items.any(
+                    StockTransferItem.variant.has(ProductVariant.product_id == product_id)
+                )
+            )
+        if search and search.strip():
+            s = f"%{search.strip()}%"
+            query = query.where(
+                or_(
+                    StockTransfer.transfer_number.ilike(s),
+                    StockTransfer.items.any(
+                        StockTransferItem.variant.has(
+                            or_(
+                                ProductVariant.sku.ilike(s),
+                                ProductVariant.product.has(Product.name.ilike(s)),
+                            )
+                        )
+                    ),
+                    StockTransfer.source_location.has(Location.name.ilike(s)),
+                    StockTransfer.destination_location.has(Location.name.ilike(s)),
+                )
+            )
 
         count_stmt = select(func.count()).select_from(query.subquery())
         total = (await self.session.execute(count_stmt)).scalar() or 0
@@ -633,8 +740,10 @@ class StockService:
         self,
         tenant_id: uuid.UUID,
         variant_id: Optional[uuid.UUID] = None,
+        product_id: Optional[uuid.UUID] = None,
         location_id: Optional[uuid.UUID] = None,
         movement_type: Optional[str] = None,
+        search: Optional[str] = None,
         limit: int = 50,
         offset: int = 0,
     ) -> Tuple[List[dict], int]:
@@ -658,11 +767,23 @@ class StockService:
 
         if variant_id:
             query = query.where(StockMovement.variant_id == variant_id)
+        if product_id:
+            query = query.where(Product.id == product_id)
         if location_id:
             loc_ids = await self._resolve_descendant_location_ids(tenant_id, location_id)
             query = query.where(StockMovement.location_id.in_(loc_ids))
         if movement_type:
             query = query.where(StockMovement.movement_type == movement_type)
+        if search and search.strip():
+            s = f"%{search.strip()}%"
+            query = query.where(
+                or_(
+                    Product.name.ilike(s),
+                    ProductVariant.sku.ilike(s),
+                    Location.name.ilike(s),
+                    StockMovement.reference_number.ilike(s),
+                )
+            )
 
         count_stmt = select(func.count()).select_from(query.subquery())
         total = (await self.session.execute(count_stmt)).scalar() or 0
@@ -695,23 +816,69 @@ class StockService:
             })
         return rows, total
 
-    async def get_ageing_report(self, tenant_id: uuid.UUID) -> AgeingSummaryResponse:
+    async def get_ageing_report(
+        self,
+        tenant_id: uuid.UUID,
+        product_id: Optional[uuid.UUID] = None,
+        category_id: Optional[uuid.UUID] = None,
+        brand_id: Optional[uuid.UUID] = None,
+        search: Optional[str] = None,
+    ) -> AgeingSummaryResponse:
         """Computes stock ageing bands (0-30, 31-60, 61-90, 91-180, 180+) using FIFO receipt layers."""
         today = date.today()
+        CatAlias = aliased(Category)
+        SubCatAlias = aliased(Category)
         stmt = (
             select(
                 StockLayer,
                 ProductVariant.sku.label("sku"),
                 Product.name.label("product_name"),
-                Category.name.label("category_name"),
+                Product.id.label("product_id"),
+                CatAlias.name.label("category_name"),
+                CatAlias.id.label("category_id"),
+                SubCatAlias.name.label("subcategory_name"),
+                SubCatAlias.id.label("subcategory_id"),
+                Brand.name.label("brand_name"),
+                Brand.id.label("brand_id"),
             )
             .join(ProductVariant, StockLayer.variant_id == ProductVariant.id)
             .join(Product, ProductVariant.product_id == Product.id)
-            .outerjoin(Category, Product.category_id == Category.id)
+            .outerjoin(CatAlias, Product.category_id == CatAlias.id)
+            .outerjoin(SubCatAlias, Product.subcategory_id == SubCatAlias.id)
+            .outerjoin(Brand, Product.brand_id == Brand.id)
             .where(StockLayer.tenant_id == tenant_id, StockLayer.remaining_quantity > 0)
         )
+        if product_id:
+            stmt = stmt.where(Product.id == product_id)
+        if category_id:
+            stmt = stmt.where(or_(Product.category_id == category_id, Product.subcategory_id == category_id))
+        if brand_id:
+            stmt = stmt.where(Product.brand_id == brand_id)
+        if search and search.strip():
+            s = f"%{search.strip()}%"
+            stmt = stmt.where(
+                or_(
+                    Product.name.ilike(s),
+                    ProductVariant.sku.ilike(s),
+                    Brand.name.ilike(s),
+                    CatAlias.name.ilike(s),
+                )
+            )
+
         res = await self.session.execute(stmt)
         layers = res.all()
+
+        # Fetch actual physical on-hand balances to guarantee mathematical consistency
+        bal_stmt = (
+            select(
+                StockBalance.variant_id,
+                func.sum(StockBalance.quantity).label("total_on_hand"),
+            )
+            .where(StockBalance.tenant_id == tenant_id)
+            .group_by(StockBalance.variant_id)
+        )
+        bal_res = await self.session.execute(bal_stmt)
+        on_hand_map = {row.variant_id: Decimal(str(row.total_on_hand or 0)) for row in bal_res.all()}
 
         band_totals = {
             "0-30 days": Decimal("0.000"),
@@ -723,41 +890,79 @@ class StockService:
         total_val = Decimal("0.00")
         total_qty = Decimal("0.000")
 
+        # Group layers by variant to reconcile FIFO consumption against physical on-hand stock
+        variant_layer_rows = {}
+        for row in layers:
+            v_id = row[0].variant_id
+            if v_id not in variant_layer_rows:
+                variant_layer_rows[v_id] = []
+            variant_layer_rows[v_id].append(row)
+
         item_map = {}
-        for layer, sku, p_name, cat_name in layers:
-            age_days = (today - layer.received_date).days
-            if age_days <= 30:
-                band = "0-30 days"
-            elif age_days <= 60:
-                band = "31-60 days"
-            elif age_days <= 90:
-                band = "61-90 days"
-            elif age_days <= 180:
-                band = "91-180 days"
-            else:
-                band = "180+ days"
+        for v_id, rows in variant_layer_rows.items():
+            on_hand = on_hand_map.get(v_id, Decimal("0.000"))
+            if on_hand <= Decimal("0.000"):
+                continue  # Variant is out of stock / 0 on hand
 
-            qty = layer.remaining_quantity
-            val = qty * layer.unit_cost
+            # Sort newest received first so we preserve the most recent layers up to physical on-hand stock
+            sorted_rows = sorted(rows, key=lambda r: (r[0].received_date, r[0].created_at), reverse=True)
+            quota = on_hand
 
-            band_totals[band] += qty
-            total_qty += qty
-            total_val += val
+            for layer, sku, p_name, p_id, cat_name, cat_id, subcat_name, subcat_id, brand_name, br_id in sorted_rows:
+                if quota <= Decimal("0.000"):
+                    break
 
-            v_id = layer.variant_id
-            if v_id not in item_map:
-                item_map[v_id] = {
-                    "variant_id": v_id,
-                    "sku": sku,
-                    "product_name": p_name,
-                    "category_name": cat_name,
-                    "total_quantity": Decimal("0.000"),
-                    "total_valuation": Decimal("0.00"),
-                    "bands": {k: Decimal("0.000") for k in band_totals.keys()},
-                }
-            item_map[v_id]["total_quantity"] += qty
-            item_map[v_id]["total_valuation"] += val
-            item_map[v_id]["bands"][band] += qty
+                alloc_qty = min(layer.remaining_quantity, quota)
+                quota -= alloc_qty
+
+                age_days = (today - layer.received_date).days
+                if age_days <= 30:
+                    band = "0-30 days"
+                elif age_days <= 60:
+                    band = "31-60 days"
+                elif age_days <= 90:
+                    band = "61-90 days"
+                elif age_days <= 180:
+                    band = "91-180 days"
+                else:
+                    band = "180+ days"
+
+                val = alloc_qty * layer.unit_cost
+
+                band_totals[band] += alloc_qty
+                total_qty += alloc_qty
+                total_val += val
+
+                if v_id not in item_map:
+                    item_map[v_id] = {
+                        "variant_id": v_id,
+                        "product_id": p_id,
+                        "sku": sku,
+                        "product_name": p_name,
+                        "category_id": cat_id,
+                        "category_name": cat_name,
+                        "subcategory_id": subcat_id,
+                        "subcategory_name": subcat_name,
+                        "brand_id": br_id,
+                        "brand_name": brand_name,
+                        "total_quantity": Decimal("0.000"),
+                        "total_valuation": Decimal("0.00"),
+                        "bands": {k: Decimal("0.000") for k in band_totals.keys()},
+                    }
+                item_map[v_id]["total_quantity"] += alloc_qty
+                item_map[v_id]["total_valuation"] += val
+                item_map[v_id]["bands"][band] += alloc_qty
+
+            # If physical stock exceeds tracked layers, allocate remainder in fresh stock at latest layer unit cost
+            if quota > Decimal("0.000") and v_id in item_map:
+                latest_cost = sorted_rows[0][0].unit_cost
+                val = quota * latest_cost
+                item_map[v_id]["total_quantity"] += quota
+                item_map[v_id]["total_valuation"] += val
+                item_map[v_id]["bands"]["0-30 days"] += quota
+                band_totals["0-30 days"] += quota
+                total_qty += quota
+                total_val += val
 
         items = [AgeingItemResponse(**data) for data in item_map.values()]
         return AgeingSummaryResponse(
@@ -902,6 +1107,7 @@ class StockService:
                 selectinload(Product.variants),
                 selectinload(Product.category),
                 selectinload(Product.brand),
+                selectinload(Product.images),
             )
             .where(Product.id == product_id, Product.tenant_id == tenant_id)
         )
@@ -1005,6 +1211,7 @@ class StockService:
                 "condition_name": cond_name,
                 "is_sellable": is_sellable,
                 "quantity": float(b.quantity),
+                "updated_at": b.updated_at.isoformat() if getattr(b, "updated_at", None) else None,
             })
 
         variants_data = [
@@ -1019,6 +1226,15 @@ class StockService:
             for v in product.variants
         ]
 
+        primary_image = None
+        if hasattr(product, "images") and product.images:
+            for img in product.images:
+                if img.is_primary:
+                    primary_image = img.file_url
+                    break
+            if not primary_image and len(product.images) > 0:
+                primary_image = product.images[0].file_url
+
         return {
             "product": {
                 "id": str(product.id),
@@ -1026,6 +1242,7 @@ class StockService:
                 "model": product.model,
                 "category_name": product.category.name if product.category else None,
                 "brand_name": product.brand.name if product.brand else None,
+                "image_url": primary_image,
                 "variants": variants_data,
             },
             "summary": {
@@ -1106,7 +1323,7 @@ class StockService:
             diff = quantity
 
         if diff != Decimal("0.000"):
-            await self.record_movement(
+            movement, _ = await self.record_movement(
                 tenant_id=tenant_id,
                 movement_type="STOCK_MAPPING",
                 variant_id=variant_id,
@@ -1116,6 +1333,18 @@ class StockService:
                 user_id=user_id,
                 notes=notes or f"Stock mapping allocation ({mode})",
             )
+            # Synchronize FIFO receipt layers
+            if diff < Decimal("0"):
+                await self._consume_stock_layers_fifo(tenant_id, variant_id, abs(diff))
+            elif diff > Decimal("0"):
+                await self._add_stock_layer(
+                    tenant_id=tenant_id,
+                    variant_id=variant_id,
+                    location_id=location_id,
+                    condition_id=condition_id,
+                    quantity=diff,
+                    movement_id=movement.id,
+                )
             await self.session.commit()
 
         return await self.get_product_stock_mapping(tenant_id, product_id)

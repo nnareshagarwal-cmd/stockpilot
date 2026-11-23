@@ -161,9 +161,15 @@ class AgeingBand(BaseModel):
 
 class AgeingItemResponse(BaseModel):
     variant_id: UUID
+    product_id: Optional[UUID] = None
     sku: str
     product_name: str
+    category_id: Optional[UUID] = None
     category_name: Optional[str] = None
+    subcategory_id: Optional[UUID] = None
+    subcategory_name: Optional[str] = None
+    brand_id: Optional[UUID] = None
+    brand_name: Optional[str] = None
     total_quantity: Decimal
     total_valuation: Decimal
     bands: dict[str, Decimal]

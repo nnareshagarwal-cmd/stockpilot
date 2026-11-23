@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import React, { useState, useMemo } from 'react'
 import {
   Card,
   Tree,
@@ -19,6 +19,7 @@ import { PlusOutlined, EditOutlined, DeleteOutlined, CopyOutlined, EnvironmentOu
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import apiClient from '../../../api/client'
 import { ApiResponse, LocationTreeItem } from '../../../api/types'
+import { lovApi } from '../../../api/lov'
 
 const { Title, Text } = Typography
 
@@ -28,6 +29,11 @@ export const LocationsPage: React.FC = () => {
   const [editingLocation, setEditingLocation] = useState<any | null>(null)
   const [isDuplicating, setIsDuplicating] = useState(false)
   const [form] = Form.useForm()
+
+  const { data: lovLocationTypes, isLoading: lovLoading } = useQuery({
+    queryKey: ['lov', 'location_type'],
+    queryFn: () => lovApi.getItems('location_type', true),
+  })
 
   const { data: treeData, isLoading } = useQuery({
     queryKey: ['locations-tree'],
@@ -110,30 +116,42 @@ export const LocationsPage: React.FC = () => {
     setModalOpen(true)
   }
 
-  const locationTypes = [
-    { label: 'Store (Retail Shop)', value: 'store' },
-    { label: 'Showroom', value: 'showroom' },
-    { label: 'Warehouse', value: 'warehouse' },
-    { label: 'Godown', value: 'godown' },
-    { label: 'Floor', value: 'floor' },
-    { label: 'Section / Zone', value: 'section' },
-    { label: 'Rack', value: 'rack' },
-    { label: 'Shelf', value: 'shelf' },
-    { label: 'Bin', value: 'bin' },
-    { label: 'Other', value: 'other' },
-  ]
+  const locationTypes = useMemo(() => {
+    if (lovLocationTypes && lovLocationTypes.length > 0) {
+      return lovLocationTypes
+        .filter((item) => item.is_active)
+        .map((item) => ({
+          label: item.label,
+          value: item.value,
+        }))
+    }
+    return [
+      { label: 'Store (Retail Shop)', value: 'store' },
+      { label: 'Showroom', value: 'showroom' },
+      { label: 'Warehouse', value: 'warehouse' },
+      { label: 'Godown', value: 'godown' },
+      { label: 'Floor', value: 'floor' },
+      { label: 'Section / Zone', value: 'section' },
+      { label: 'Rack', value: 'rack' },
+      { label: 'Shelf', value: 'shelf' },
+      { label: 'Bin', value: 'bin' },
+      { label: 'Other', value: 'other' },
+    ]
+  }, [lovLocationTypes])
 
   const renderTreeNodes = (items: LocationTreeItem[]): any[] =>
-    items.map((item) => ({
-      key: item.id,
-      title: (
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%', padding: '4px 0' }}>
-          <Space>
-            <Text strong>{item.name}</Text>
-            {item.code && <Tag color="blue">{item.code}</Tag>}
-            <Tag color="purple">{item.location_type}</Tag>
-            {!item.is_active && <Tag color="default">Archived</Tag>}
-          </Space>
+    items.map((item) => {
+      const typeLabel = locationTypes.find((t) => t.value === item.location_type)?.label || item.location_type
+      return {
+        key: item.id,
+        title: (
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%', padding: '4px 0' }}>
+            <Space>
+              <Text strong>{item.name}</Text>
+              {item.code && <Tag color="blue">{item.code}</Tag>}
+              <Tag color="purple">{typeLabel}</Tag>
+              {!item.is_active && <Tag color="default">Archived</Tag>}
+            </Space>
           <Space size={4}>
             <Tooltip title="Duplicate Location">
               <Button
@@ -180,7 +198,8 @@ export const LocationsPage: React.FC = () => {
         </div>
       ),
       children: item.children ? renderTreeNodes(item.children) : [],
-    }))
+    }
+  })
 
   return (
     <div style={{ maxWidth: '900px', margin: '0 auto' }}>
@@ -238,7 +257,7 @@ export const LocationsPage: React.FC = () => {
           </Form.Item>
 
           <Form.Item label="Location Type" name="location_type" initialValue="other" rules={[{ required: true }]}>
-            <Select options={locationTypes} />
+            <Select options={locationTypes} loading={lovLoading} placeholder="Select Location Type" />
           </Form.Item>
 
           <Form.Item label="Parent Location (Container)" name="parent_id">
@@ -248,7 +267,10 @@ export const LocationsPage: React.FC = () => {
               options={
                 flatLocations
                   ?.filter((l) => !editingLocation || l.id !== editingLocation.id)
-                  .map((l) => ({ label: `${l.name} (${l.location_type})`, value: l.id })) || []
+                  .map((l) => ({
+                    label: `${l.name} (${locationTypes.find((t) => t.value === l.location_type)?.label || l.location_type})`,
+                    value: l.id,
+                  })) || []
               }
             />
           </Form.Item>

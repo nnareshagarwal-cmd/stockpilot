@@ -22,6 +22,7 @@ import { stockApi, StockMovementItem } from '../../api/stock'
 import { cleanLocationName } from './StockBalancesPage'
 import apiClient from '../../api/client'
 import { ThinStatCard } from '../../components/common/ThinStatCard'
+import { ProductSearchSelector } from '../../components/common/ProductSearchSelector'
 
 const { Title, Text } = Typography
 
@@ -31,6 +32,17 @@ export const StockMovementsPage: React.FC = () => {
   const [totalItems, setTotalItems] = useState(0)
   const [page, setPage] = useState(1)
   const [pageSize, setPageSize] = useState(25)
+  const [productIdFilter, setProductIdFilter] = useState<string | undefined>()
+  const [searchText, setSearchText] = useState('')
+  const [debouncedSearch, setDebouncedSearch] = useState('')
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedSearch(searchText)
+      setPage(1)
+    }, 300)
+    return () => clearTimeout(timer)
+  }, [searchText])
 
   const [locationId, setLocationId] = useState<string | undefined>()
   const [movementType, setMovementType] = useState<string | undefined>()
@@ -46,8 +58,10 @@ export const StockMovementsPage: React.FC = () => {
     setLoading(true)
     try {
       const res = await stockApi.getMovements({
+        product_id: productIdFilter,
         location_id: locationId,
         movement_type: movementType,
+        search: debouncedSearch.trim() || undefined,
         page,
         page_size: pageSize,
       })
@@ -62,7 +76,7 @@ export const StockMovementsPage: React.FC = () => {
 
   useEffect(() => {
     fetchMovements()
-  }, [page, pageSize, locationId, movementType])
+  }, [page, pageSize, locationId, movementType, productIdFilter, debouncedSearch])
 
   const getMovementTag = (type: string) => {
     switch (type) {
@@ -197,6 +211,22 @@ export const StockMovementsPage: React.FC = () => {
           Immutable double-entry log of all historical inventory intakes, transfers, condition changes, and adjustments.
         </Text>
       </div>
+
+      {/* Product Search Selector */}
+      <ProductSearchSelector
+        value={productIdFilter}
+        searchText={searchText}
+        onSearchTextChange={(txt) => setSearchText(txt)}
+        onSelectProduct={(id) => {
+          setProductIdFilter(id)
+          setPage(1)
+        }}
+        onClear={() => {
+          setProductIdFilter(undefined)
+          setSearchText('')
+          setPage(1)
+        }}
+      />
 
       {/* Metric Cards Strip - Thin & Colorful matching reference */}
       <Row gutter={[12, 12]} style={{ marginBottom: 14 }}>

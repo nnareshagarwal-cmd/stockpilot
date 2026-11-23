@@ -68,9 +68,15 @@ export interface StockTransfer {
 
 export interface AgeingItem {
   variant_id: string
+  product_id?: string
   sku: string
   product_name: string
+  category_id?: string
   category_name?: string
+  subcategory_id?: string
+  subcategory_name?: string
+  brand_id?: string
+  brand_name?: string
   total_quantity: number
   total_valuation: number
   bands: Record<string, number>
@@ -128,9 +134,11 @@ export const stockApi = {
   },
 
   getMovements: async (params?: {
+    product_id?: string
     variant_id?: string
     location_id?: string
     movement_type?: string
+    search?: string
     page?: number
     page_size?: number
   }) => {
@@ -138,7 +146,7 @@ export const stockApi = {
     return res.data
   },
 
-  getTransfers: async (params?: { status?: string; page?: number; page_size?: number }) => {
+  getTransfers: async (params?: { product_id?: string; status?: string; search?: string; page?: number; page_size?: number }) => {
     const res = await apiClient.get('/stock/transfers', { params })
     return res.data
   },
@@ -187,8 +195,8 @@ export const stockApi = {
     return res.data.data
   },
 
-  getAgeing: async (): Promise<AgeingSummary> => {
-    const res = await apiClient.get('/stock/ageing')
+  getAgeing: async (params?: { product_id?: string; category_id?: string; brand_id?: string; search?: string }): Promise<AgeingSummary> => {
+    const res = await apiClient.get('/stock/ageing', { params })
     return res.data
   },
 
@@ -225,6 +233,7 @@ export const stockApi = {
 
 export interface StockMappingLocation {
   id: string
+  balance_id?: string
   variant_id: string
   sku: string
   variant_name: string
@@ -235,6 +244,7 @@ export interface StockMappingLocation {
   condition_name: string
   is_sellable: boolean
   quantity: number
+  updated_at?: string
 }
 
 export interface StockMappingProduct {
@@ -243,6 +253,7 @@ export interface StockMappingProduct {
   model?: string
   category_name?: string
   brand_name?: string
+  image_url?: string
   variants: Array<{
     id: string
     sku: string
