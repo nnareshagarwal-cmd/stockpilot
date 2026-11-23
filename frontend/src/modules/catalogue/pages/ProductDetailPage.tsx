@@ -466,14 +466,35 @@ export const ProductDetailPage: React.FC = () => {
               label: `Technical Specs (${product.attributes.length})`,
               children:
                 product.attributes.length === 0 ? (
-                  <Empty description="No technical specifications assigned yet" />
+                  <Empty
+                    description="No technical specifications assigned yet"
+                    style={{ padding: '24px 0' }}
+                  >
+                    <Button
+                      type="primary"
+                      icon={<EditOutlined />}
+                      onClick={() => navigate(`/products/${product.id}/edit`)}
+                    >
+                      Add Technical Specifications
+                    </Button>
+                  </Empty>
                 ) : (
-                  <Table
-                    columns={specColumns}
-                    dataSource={product.attributes}
-                    rowKey="id"
-                    pagination={false}
-                  />
+                  <div>
+                    <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 16 }}>
+                      <Button
+                        icon={<EditOutlined />}
+                        onClick={() => navigate(`/products/${product.id}/edit`)}
+                      >
+                        Edit Specifications
+                      </Button>
+                    </div>
+                    <Table
+                      columns={specColumns}
+                      dataSource={product.attributes}
+                      rowKey="id"
+                      pagination={false}
+                    />
+                  </div>
                 ),
             },
             {
