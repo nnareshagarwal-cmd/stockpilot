@@ -804,15 +804,29 @@ async def create_attribute(
         ))
 
     if data.options:
-        for opt in data.options:
-            db.add(AttributeOption(attribute_id=attr.id, value=opt.value, sort_order=opt.sort_order))
+        seen = set()
+        for idx, opt in enumerate(data.options):
+            if not opt.value:
+                continue
+            val_clean = opt.value.strip()
+            if not val_clean:
+                continue
+            val_key = val_clean.lower()
+            if val_key in seen:
+                continue
+            seen.add(val_key)
+            sort_order = opt.sort_order if (opt.sort_order is not None and opt.sort_order != 0) else (idx + 1)
+            db.add(AttributeOption(attribute_id=attr.id, value=val_clean, sort_order=sort_order))
 
     await log_audit(db, tenant_id, user_id, "CREATE", "attribute", attr.id, f"Created attribute {attr.name}")
     await db.commit()
 
     # Reload with options
     reloaded = await get_attribute(db, tenant_id, attr.id)
-    return AttributeDefinitionResponse.model_validate(reloaded)
+    resp = AttributeDefinitionResponse.model_validate(reloaded)
+    if data.category_id:
+        resp.category_ids = [data.category_id]
+    return resp
 
 
 async def get_attributes(
@@ -1144,28 +1158,120 @@ async def update_attribute(
 ) -> AttributeDefinitionResponse:
     attr = await get_attribute(db, tenant_id, attr_id)
 
-    if data.category_id is not None:
-        cat_res = await db.execute(
-            select(Category).where(Category.id == data.category_id, Category.tenant_id == tenant_id)
-        )
-        if not cat_res.scalar_one_or_none():
-            raise NotFoundException("Category", str(data.category_id))
-
     update_dict = data.model_dump(exclude_unset=True, exclude={"options"})
+
+    if "code" in update_dict and update_dict["code"] != attr.code:
+        dup = await db.execute(
+            select(AttributeDefinition).where(
+                AttributeDefinition.tenant_id == tenant_id,
+                AttributeDefinition.code == update_dict["code"],
+                AttributeDefinition.id != attr.id,
+            )
+        )
+        if dup.scalar_one_or_none():
+            raise ConflictException(f"Attribute code '{update_dict['code']}' already exists")
+
+    if "category_id" in update_dict:
+        new_cat_id = update_dict["category_id"]
+        if new_cat_id is not None:
+            cat_res = await db.execute(
+                select(Category).where(Category.id == new_cat_id, Category.tenant_id == tenant_id)
+            )
+            if not cat_res.scalar_one_or_none():
+                raise NotFoundException("Category", str(new_cat_id))
+
+        if attr.category_id != new_cat_id:
+            # Clean up old mapping for attr.category_id if present
+            if attr.category_id:
+                old_mappings = await db.execute(
+                    select(CategoryAttributeMapping).where(
+                        CategoryAttributeMapping.tenant_id == tenant_id,
+                        CategoryAttributeMapping.category_id == attr.category_id,
+                        CategoryAttributeMapping.attribute_id == attr.id,
+                    )
+                )
+                for m in old_mappings.scalars().all():
+                    await db.delete(m)
+
+            # Add mapping for new category if set
+            if new_cat_id:
+                existing_map = await db.execute(
+                    select(CategoryAttributeMapping).where(
+                        CategoryAttributeMapping.tenant_id == tenant_id,
+                        CategoryAttributeMapping.category_id == new_cat_id,
+                        CategoryAttributeMapping.attribute_id == attr.id,
+                    )
+                )
+                if not existing_map.scalar_one_or_none():
+                    db.add(CategoryAttributeMapping(
+                        tenant_id=tenant_id,
+                        category_id=new_cat_id,
+                        attribute_id=attr.id,
+                    ))
+
+            attr.category_id = new_cat_id
+
     for k, v in update_dict.items():
-        setattr(attr, k, v)
+        if k != "category_id":
+            setattr(attr, k, v)
 
     if data.options is not None:
-        # Replace options
-        for existing_opt in list(attr.options):
-            await db.delete(existing_opt)
-        for opt in data.options:
-            db.add(AttributeOption(attribute_id=attr.id, value=opt.value, sort_order=opt.sort_order))
+        # attr.options is already loaded via selectinload in get_attribute
+        existing_opts = list(attr.options)
+
+        # Deduplicate and clean incoming options
+        cleaned_options = []
+        seen_values = set()
+        for idx, opt in enumerate(data.options):
+            if not opt.value:
+                continue
+            val_clean = opt.value.strip()
+            if not val_clean:
+                continue
+            val_key = val_clean.lower()
+            if val_key in seen_values:
+                continue
+            seen_values.add(val_key)
+            sort_order = opt.sort_order if (opt.sort_order is not None and opt.sort_order != 0) else (idx + 1)
+            cleaned_options.append((opt, val_clean, val_key, sort_order))
+
+        # 1. Delete removed options from relationship and db
+        for existing_opt in existing_opts:
+            if existing_opt.value.strip().lower() not in seen_values:
+                if existing_opt in attr.options:
+                    attr.options.remove(existing_opt)
+                await db.delete(existing_opt)
+
+        # Flush deletes so Postgres frees up unique constraint slots before update/insert
+        await db.flush()
+
+        # 2. Update existing retained options or append new ones
+        existing_map = {opt.value.strip().lower(): opt for opt in attr.options}
+        for opt, val_clean, val_key, sort_order in cleaned_options:
+            if val_key in existing_map:
+                existing_opt = existing_map[val_key]
+                existing_opt.value = val_clean
+                existing_opt.sort_order = sort_order
+            else:
+                new_opt = AttributeOption(attribute_id=attr.id, value=val_clean, sort_order=sort_order)
+                attr.options.append(new_opt)
 
     await log_audit(db, tenant_id, user_id, "UPDATE", "attribute", attr.id, f"Updated attribute {attr.name}")
     await db.commit()
-    reloaded = await get_attribute(db, tenant_id, attr.id)
-    return AttributeDefinitionResponse.model_validate(reloaded)
+
+    reloaded = await get_attribute(db, tenant_id, attr_id)
+    resp = AttributeDefinitionResponse.model_validate(reloaded)
+    map_res = await db.execute(
+        select(CategoryAttributeMapping.category_id).where(
+            CategoryAttributeMapping.tenant_id == tenant_id,
+            CategoryAttributeMapping.attribute_id == attr_id,
+        )
+    )
+    cats = set(map_res.scalars().all())
+    if reloaded.category_id:
+        cats.add(reloaded.category_id)
+    resp.category_ids = list(cats)
+    return resp
 
 
 async def archive_attribute(db: AsyncSession, tenant_id: uuid.UUID, user_id: uuid.UUID, attr_id: uuid.UUID):

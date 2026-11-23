@@ -135,7 +135,14 @@ export const AttributesPage: React.FC = () => {
       queryClient.invalidateQueries({ queryKey: ['category-attribute-mappings'] })
     },
     onError: (err: any) => {
-      message.error(err.response?.data?.error?.message || 'Action failed')
+      const detail =
+        err.response?.data?.error?.message ||
+        (typeof err.response?.data?.detail === 'string'
+          ? err.response?.data?.detail
+          : err.response?.data?.detail?.[0]?.msg) ||
+        err.message ||
+        'Action failed'
+      message.error(detail)
     },
   })
 
@@ -200,7 +207,7 @@ export const AttributesPage: React.FC = () => {
         name: attr.name,
         code: attr.code,
         data_type: attr.data_type,
-        category_id: attr.category_id,
+        category_id: attr.category_id || undefined,
         is_required: attr.is_required,
         is_searchable: attr.is_searchable,
         is_filterable: attr.is_filterable,
@@ -217,7 +224,7 @@ export const AttributesPage: React.FC = () => {
         is_searchable: true,
         sort_order: 0,
         options: [],
-        category_id: activeCategoryId || undefined,
+        category_id: undefined,
       })
     }
     setModalOpen(true)
@@ -737,7 +744,26 @@ export const AttributesPage: React.FC = () => {
         confirmLoading={saveMutation.isPending}
         width={600}
       >
-        <Form form={form} layout="vertical" onFinish={(val) => saveMutation.mutate(val)}>
+        <Form
+          form={form}
+          layout="vertical"
+          onFinish={(val) => {
+            const payload = {
+              ...val,
+              category_id: val.category_id || null,
+              options:
+                val.data_type === 'single_choice' || val.data_type === 'multiple_choice'
+                  ? (val.options || [])
+                      .filter((o: any) => o && o.value && o.value.trim() !== '')
+                      .map((o: any, idx: number) => ({
+                        value: o.value.trim(),
+                        sort_order: idx + 1,
+                      }))
+                  : [],
+            }
+            saveMutation.mutate(payload)
+          }}
+        >
           <Form.Item label="Attribute Name" name="name" rules={[{ required: true, message: 'Please enter name' }]}>
             <Input placeholder="e.g. Frame Material / Seating Capacity / Lock Mechanism" />
           </Form.Item>
@@ -753,8 +779,19 @@ export const AttributesPage: React.FC = () => {
           <Form.Item label="Category (Leave empty for Global)" name="category_id">
             <Select
               allowClear
+              showSearch
               placeholder="Global (Applicable to all categories)"
-              options={categories?.map((c) => ({ label: c.name, value: c.id })) || []}
+              optionFilterProp="label"
+              filterOption={(input, option) =>
+                (option?.label ?? '').toString().toLowerCase().includes(input.toLowerCase())
+              }
+              options={categories?.map((c) => {
+                const parent = c.parent_id ? categories.find((p) => p.id === c.parent_id) : null
+                return {
+                  label: parent ? `${parent.name} → ${c.name}` : c.name,
+                  value: c.id,
+                }
+              }) || []}
             />
           </Form.Item>
 
