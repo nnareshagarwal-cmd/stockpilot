@@ -33,6 +33,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import apiClient from '../../../api/client'
 import { ApiResponse, AttributeDefinition } from '../../../api/types'
 import { formatIndianNumber, parseIndianNumber } from '../../../utils/currency'
+import { compressImageFile } from '../../../utils/imageCompressor'
 
 const { Title, Text, Paragraph } = Typography
 const { TextArea } = Input
@@ -436,9 +437,17 @@ export const ProductFormPage: React.FC = () => {
       // If there are files to upload, upload them
       if (fileList.length > 0 && !isEdit) {
         const formData = new FormData()
-        fileList.forEach((file) => {
-          if (file.originFileObj) {
-            formData.append('files', file.originFileObj)
+        const compressedList = await Promise.all(
+          fileList.map(async (file) => {
+            if (file.originFileObj) {
+              return await compressImageFile(file.originFileObj)
+            }
+            return null
+          })
+        )
+        compressedList.forEach((file) => {
+          if (file) {
+            formData.append('files', file)
           }
         })
         try {
@@ -1074,7 +1083,7 @@ export const ProductFormPage: React.FC = () => {
               </div>
             </Upload>
             <Text type="secondary" style={{ fontSize: '12px', display: 'block', marginTop: '8px' }}>
-              Supported: PNG, JPEG, WebP up to 10MB each. The first uploaded image will default as primary.
+              Supported: PNG, JPEG, WebP up to 10MB each. High-resolution photos are automatically compressed & optimized. First image defaults as primary.
             </Text>
           </Card>
         )}

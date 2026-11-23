@@ -49,6 +49,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import apiClient from '../../../api/client'
 import { ApiResponse, ProductDetail, AttributeDefinition, VariantDetail } from '../../../api/types'
 import { cleanLocationName } from '../../stock/StockBalancesPage'
+import { compressImageFile } from '../../../utils/imageCompressor'
 
 const { Title, Text, Paragraph } = Typography
 
@@ -260,9 +261,10 @@ export const ProductDetailPage: React.FC = () => {
   // Upload more images
   const handleUploadFiles = async (options: any) => {
     const { file, onSuccess, onError } = options
-    const formData = new FormData()
-    formData.append('files', file)
     try {
+      const compressed = await compressImageFile(file)
+      const formData = new FormData()
+      formData.append('files', compressed)
       await apiClient.post(`/products/${id}/images`, formData, {
         headers: { 'Content-Type': 'multipart/form-data' },
       })
