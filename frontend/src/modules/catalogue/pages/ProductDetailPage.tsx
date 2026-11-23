@@ -485,7 +485,14 @@ export const ProductDetailPage: React.FC = () => {
     )
   }
 
-  const primaryImage = product.images.find((img) => img.is_primary) || product.images[0]
+  const isImagePrimary = (img?: any) => {
+    if (!img) return false
+    if (product.images.length === 1) return true
+    if (img.is_primary) return true
+    return !product.images.some((i: any) => i.is_primary) && product.images[0]?.id === img.id
+  }
+
+  const primaryImage = product.images.find(isImagePrimary) || product.images[0]
   const activeImage = product.images.find((img) => img.id === selectedImageId) || primaryImage
 
   const variantColumns = [
@@ -775,7 +782,7 @@ export const ProductDetailPage: React.FC = () => {
                       margin: '0 auto',
                     }}
                   />
-                  {activeImage.is_primary && (
+                  {isImagePrimary(activeImage) && (
                     <Tag
                       color="green"
                       style={{
@@ -809,7 +816,7 @@ export const ProductDetailPage: React.FC = () => {
                     {activeImage.caption || activeImage.file_name}
                   </Text>
                   <Space size={6}>
-                    {!activeImage.is_primary ? (
+                    {!isImagePrimary(activeImage) ? (
                       <Button
                         size="small"
                         type="text"
@@ -885,7 +892,7 @@ export const ProductDetailPage: React.FC = () => {
                           alt={img.file_name}
                           style={{ width: '100%', height: '100%', objectFit: 'cover', borderRadius: 4 }}
                         />
-                        {img.is_primary && (
+                        {isImagePrimary(img) && (
                           <div
                             style={{
                               position: 'absolute',

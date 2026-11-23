@@ -375,7 +375,12 @@ async def get_product_detail(db: AsyncSession, tenant_id: uuid.UUID, product_id:
             )
         )
 
-    # Build images response
+    # Build images response (ensure single image or first image defaults to primary)
+    if product.images and (len(product.images) == 1 or not any(img.is_primary for img in product.images)):
+        if not product.images[0].is_primary:
+            product.images[0].is_primary = True
+            await db.commit()
+
     images_resp = [ProductImageResponse.model_validate(img) for img in product.images]
 
     return ProductDetailResponse(
@@ -858,7 +863,16 @@ async def upload_product_images(
     if not product:
         raise NotFoundException("Product", str(product_id))
 
-    # Check existing image count to set is_primary on first image
+    # Check if there is already any primary image
+    has_primary_res = await db.execute(
+        select(func.count(ProductImage.id)).where(
+            ProductImage.product_id == product_id,
+            ProductImage.tenant_id == tenant_id,
+            ProductImage.is_primary == True,
+        )
+    )
+    has_primary = has_primary_res.scalar_one() > 0
+
     count_res = await db.execute(
         select(func.count(ProductImage.id)).where(ProductImage.product_id == product_id)
     )
@@ -869,7 +883,9 @@ async def upload_product_images(
 
     for i, file in enumerate(files):
         meta = await save_upload(file, subdir)
-        is_primary = (existing_count == 0 and i == 0)
+        is_primary = (not has_primary and i == 0)
+        if is_primary:
+            has_primary = True
         img = ProductImage(
             tenant_id=tenant_id,
             product_id=product_id,
@@ -997,6 +1013,18 @@ async def delete_product_image(
 
     await delete_file(img.file_url)
     await db.delete(img)
+    await db.flush()
+
+    # If remaining images exist, ensure at least one is designated as primary
+    rem_res = await db.execute(
+        select(ProductImage)
+        .where(ProductImage.product_id == product_id, ProductImage.tenant_id == tenant_id)
+        .order_by(ProductImage.sort_order.asc(), ProductImage.created_at.asc())
+    )
+    remaining = rem_res.scalars().all()
+    if remaining and (len(remaining) == 1 or not any(r.is_primary for r in remaining)):
+        remaining[0].is_primary = True
+
     await log_audit(db, tenant_id, user_id, "DELETE", "product_image", image_id, "Deleted product image")
     await db.commit()
 
