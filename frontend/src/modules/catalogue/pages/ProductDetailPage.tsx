@@ -827,31 +827,30 @@ export const ProductDetailPage: React.FC = () => {
                 </Empty>
               ) : (
                 <div>
-                  {/* Top Bar with summary and edit button */}
+                  {/* Clean Dimensions Bar */}
                   <div
                     style={{
                       display: 'flex',
                       justifyContent: 'space-between',
                       alignItems: 'center',
                       background: '#f8fafc',
-                      padding: '16px 20px',
+                      padding: '20px 24px',
                       borderRadius: '10px',
-                      marginBottom: 24,
                       border: '1px solid #e2e8f0',
                       flexWrap: 'wrap',
-                      gap: '12px',
+                      gap: '16px',
                     }}
                   >
                     <div>
-                      <Text type="secondary" style={{ display: 'block', fontSize: '12px', marginBottom: 4 }}>
+                      <Text type="secondary" style={{ display: 'block', fontSize: '13px', marginBottom: 6 }}>
                         Overall Dimensions (W × D × H):
                       </Text>
                       <Space size={12} wrap>
-                        <Tag color="blue" style={{ fontSize: '14px', padding: '4px 10px', fontWeight: 600 }}>
+                        <Tag color="blue" style={{ fontSize: '14px', padding: '6px 12px', fontWeight: 600, borderRadius: '6px' }}>
                           {product.width_mm || '—'} W × {product.depth_mm || '—'} D × {product.height_mm || '—'} H mm
                         </Tag>
-                        <Tag color="geekblue" style={{ fontSize: '14px', padding: '4px 10px', fontWeight: 600 }}>
-                          {product.width_inches || '—'}" W × {product.depth_inches || '—'}" D × {product.height_inches || '—'}" H
+                        <Tag color="geekblue" style={{ fontSize: '14px', padding: '6px 12px', fontWeight: 600, borderRadius: '6px' }}>
+                          {product.width_inches || '—'}" W × {product.depth_inches || '—'}" D × {product.height_inches || '—'}" H inches
                         </Tag>
                       </Space>
                     </div>
@@ -864,149 +863,6 @@ export const ProductDetailPage: React.FC = () => {
                       Edit Dimensions
                     </Button>
                   </div>
-
-                  {/* 3 Metric Cards */}
-                  <Row gutter={[20, 20]} style={{ marginBottom: 24 }}>
-                    <Col xs={24} md={8}>
-                      <Card
-                        style={{
-                          borderRadius: '12px',
-                          border: '1px solid #e2e8f0',
-                          boxShadow: '0 1px 3px rgba(0,0,0,0.05)',
-                        }}
-                      >
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-                          <Text type="secondary" style={{ fontSize: '13px', fontWeight: 600 }}>
-                            WIDTH (Side-to-Side)
-                          </Text>
-                          <Tag color="blue">W</Tag>
-                        </div>
-                        <div style={{ fontSize: '28px', fontWeight: 700, color: '#0f172a', marginBottom: 4 }}>
-                          {product.width_mm ? `${Number(product.width_mm).toLocaleString()} mm` : '—'}
-                        </div>
-                        <Text type="secondary" style={{ fontSize: '14px' }}>
-                          {product.width_inches ? `${product.width_inches} inches` : '—'}
-                          {product.width_mm && ` (${(Number(product.width_mm) / 10).toFixed(1)} cm)`}
-                        </Text>
-                      </Card>
-                    </Col>
-
-                    <Col xs={24} md={8}>
-                      <Card
-                        style={{
-                          borderRadius: '12px',
-                          border: '1px solid #e2e8f0',
-                          boxShadow: '0 1px 3px rgba(0,0,0,0.05)',
-                        }}
-                      >
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-                          <Text type="secondary" style={{ fontSize: '13px', fontWeight: 600 }}>
-                            DEPTH (Front-to-Back)
-                          </Text>
-                          <Tag color="purple">D</Tag>
-                        </div>
-                        <div style={{ fontSize: '28px', fontWeight: 700, color: '#0f172a', marginBottom: 4 }}>
-                          {product.depth_mm ? `${Number(product.depth_mm).toLocaleString()} mm` : '—'}
-                        </div>
-                        <Text type="secondary" style={{ fontSize: '14px' }}>
-                          {product.depth_inches ? `${product.depth_inches} inches` : '—'}
-                          {product.depth_mm && ` (${(Number(product.depth_mm) / 10).toFixed(1)} cm)`}
-                        </Text>
-                      </Card>
-                    </Col>
-
-                    <Col xs={24} md={8}>
-                      <Card
-                        style={{
-                          borderRadius: '12px',
-                          border: '1px solid #e2e8f0',
-                          boxShadow: '0 1px 3px rgba(0,0,0,0.05)',
-                        }}
-                      >
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-                          <Text type="secondary" style={{ fontSize: '13px', fontWeight: 600 }}>
-                            HEIGHT (Floor-to-Top)
-                          </Text>
-                          <Tag color="green">H</Tag>
-                        </div>
-                        <div style={{ fontSize: '28px', fontWeight: 700, color: '#0f172a', marginBottom: 4 }}>
-                          {product.height_mm ? `${Number(product.height_mm).toLocaleString()} mm` : '—'}
-                        </div>
-                        <Text type="secondary" style={{ fontSize: '14px' }}>
-                          {product.height_inches ? `${product.height_inches} inches` : '—'}
-                          {product.height_mm && ` (${(Number(product.height_mm) / 10).toFixed(1)} cm)`}
-                        </Text>
-                      </Card>
-                    </Col>
-                  </Row>
-
-                  {/* Dual-Unit Specifications Comparison Table */}
-                  <Card title="Dimension Specifications Matrix" size="small" style={{ borderRadius: '10px' }}>
-                    <Table
-                      pagination={false}
-                      size="middle"
-                      columns={[
-                        {
-                          title: 'Dimension',
-                          dataIndex: 'name',
-                          key: 'name',
-                          render: (text: string, r: any) => (
-                            <Space>
-                              <Text strong>{text}</Text>
-                              <Tag color={r.tagColor}>{r.symbol}</Tag>
-                            </Space>
-                          ),
-                        },
-                        {
-                          title: 'Millimeters (mm)',
-                          dataIndex: 'mm',
-                          key: 'mm',
-                          render: (val: any) => (val ? <Text strong>{val} mm</Text> : '—'),
-                        },
-                        {
-                          title: 'Centimeters (cm)',
-                          dataIndex: 'cm',
-                          key: 'cm',
-                          render: (val: any) => (val ? `${val} cm` : '—'),
-                        },
-                        {
-                          title: 'Inches (in)',
-                          dataIndex: 'inches',
-                          key: 'inches',
-                          render: (val: any) => (val ? <Text style={{ color: '#1677ff', fontWeight: 600 }}>{val} in</Text> : '—'),
-                        },
-                      ]}
-                      dataSource={[
-                        {
-                          key: 'width',
-                          name: 'Width (Side to Side)',
-                          symbol: 'W',
-                          tagColor: 'blue',
-                          mm: product.width_mm,
-                          cm: product.width_mm ? (Number(product.width_mm) / 10).toFixed(1) : null,
-                          inches: product.width_inches,
-                        },
-                        {
-                          key: 'depth',
-                          name: 'Depth (Front to Back)',
-                          symbol: 'D',
-                          tagColor: 'purple',
-                          mm: product.depth_mm,
-                          cm: product.depth_mm ? (Number(product.depth_mm) / 10).toFixed(1) : null,
-                          inches: product.depth_inches,
-                        },
-                        {
-                          key: 'height',
-                          name: 'Height (Floor to Top)',
-                          symbol: 'H',
-                          tagColor: 'green',
-                          mm: product.height_mm,
-                          cm: product.height_mm ? (Number(product.height_mm) / 10).toFixed(1) : null,
-                          inches: product.height_inches,
-                        },
-                      ]}
-                    />
-                  </Card>
                 </div>
               ),
             },
