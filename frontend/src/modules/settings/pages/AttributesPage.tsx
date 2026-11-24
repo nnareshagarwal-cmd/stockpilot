@@ -7,6 +7,7 @@ import {
   Form,
   Input,
   Select,
+  TreeSelect,
   Switch,
   Typography,
   Space,
@@ -78,6 +79,28 @@ export const AttributesPage: React.FC = () => {
   // Group Categories into Main and Subcategories
   const mainCategories = useMemo(() => {
     return categories?.filter((c) => !c.parent_id && c.is_active !== false) || []
+  }, [categories])
+
+  // Hierarchical category tree for TreeSelect
+  const categoryTreeData = useMemo(() => {
+    if (!categories) return []
+    const rootCats = categories.filter((c) => !c.parent_id && c.is_active !== false)
+    return rootCats.map((parent) => {
+      const children = categories.filter((c) => c.parent_id === parent.id && c.is_active !== false)
+      return {
+        title: parent.name,
+        value: parent.id,
+        key: parent.id,
+        children:
+          children.length > 0
+            ? children.map((child) => ({
+                title: child.name,
+                value: child.id,
+                key: child.id,
+              }))
+            : undefined,
+      }
+    })
   }, [categories])
 
   // Auto-select first main category if none selected
@@ -230,7 +253,7 @@ export const AttributesPage: React.FC = () => {
         is_searchable: true,
         sort_order: 0,
         options: [],
-        category_ids: activeCategoryId ? [activeCategoryId] : [],
+        category_ids: [],
       })
     }
     setModalOpen(true)
@@ -754,11 +777,10 @@ export const AttributesPage: React.FC = () => {
           form={form}
           layout="vertical"
           onFinish={(val) => {
-            const catIds = Array.isArray(val.category_ids)
-              ? val.category_ids
-              : val.category_ids
-              ? [val.category_ids]
-              : []
+            const rawCatIds = val.category_ids || []
+            const catIds = (Array.isArray(rawCatIds) ? rawCatIds : [rawCatIds])
+              .map((c: any) => (typeof c === 'object' && c?.value ? c.value : c))
+              .filter(Boolean)
             const payload = {
               ...val,
               category_ids: catIds,
@@ -789,23 +811,21 @@ export const AttributesPage: React.FC = () => {
           </Form.Item>
 
           <Form.Item label="Categories (Leave empty for Global)" name="category_ids">
-            <Select
-              mode="multiple"
+            <TreeSelect
+              treeData={categoryTreeData}
+              treeCheckable={true}
+              showCheckedStrategy={TreeSelect.SHOW_ALL}
+              placeholder="Global (Applicable to all categories)"
               allowClear
               showSearch
-              placeholder="Global (Applicable to all categories)"
-              optionFilterProp="label"
-              maxTagCount="responsive"
-              filterOption={(input, option) =>
-                (option?.label ?? '').toString().toLowerCase().includes(input.toLowerCase())
+              treeNodeFilterProp="title"
+              filterTreeNode={(search, item) =>
+                ((item?.title as string) || '').toLowerCase().includes(search.toLowerCase())
               }
-              options={categories?.map((c) => {
-                const parent = c.parent_id ? categories.find((p) => p.id === c.parent_id) : null
-                return {
-                  label: parent ? `${parent.name} → ${c.name}` : c.name,
-                  value: c.id,
-                }
-              }) || []}
+              treeDefaultExpandAll={false}
+              maxTagCount="responsive"
+              dropdownStyle={{ maxHeight: 400, overflow: 'auto' }}
+              style={{ width: '100%' }}
             />
           </Form.Item>
 
