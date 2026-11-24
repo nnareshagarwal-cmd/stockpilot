@@ -360,9 +360,29 @@ export const LandingPage: React.FC = () => {
                   bodyStyle={{ padding: '16px' }}
                 >
                   <Space direction="vertical" size={4} style={{ width: '100%' }}>
-                    <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
-                      {item.category && <Tag color="blue">{item.category}</Tag>}
-                      {item.brand && <Tag color="purple">{item.brand}</Tag>}
+                    <div
+                      style={{
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        alignItems: 'center',
+                        width: '100%',
+                        gap: '6px',
+                      }}
+                    >
+                      <div>
+                        {item.category && (
+                          <Tag color="blue" style={{ margin: 0 }}>
+                            {item.category}
+                          </Tag>
+                        )}
+                      </div>
+                      <div style={{ marginLeft: 'auto' }}>
+                        {item.brand && (
+                          <Tag color="purple" style={{ margin: 0 }}>
+                            {item.brand}
+                          </Tag>
+                        )}
+                      </div>
                     </div>
                     {item.locations && item.locations.length > 0 && (
                       <div style={{ marginTop: '2px' }}>
@@ -372,12 +392,17 @@ export const LandingPage: React.FC = () => {
                       </div>
                     )}
 
-                    <Text strong style={{ fontSize: '15px', display: 'block', marginTop: '6px' }} ellipsis>
+                    <Text
+                      strong
+                      style={{
+                        fontSize: '15px',
+                        display: 'block',
+                        marginTop: '6px',
+                        lineHeight: '1.35',
+                        wordBreak: 'break-word',
+                      }}
+                    >
                       {item.name}
-                    </Text>
-
-                    <Text type="secondary" style={{ fontSize: '12px' }} ellipsis>
-                      SKU: <b>{item.default_sku || 'N/A'}</b>
                     </Text>
 
                     <div
