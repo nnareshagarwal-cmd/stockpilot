@@ -70,3 +70,39 @@ body {
   padding: 8px 12px !important;
 }
 
+/* Global product search autocomplete dropdown (Home & Search page) */
+.global-search-dropdown.ant-select-dropdown,
+.global-search-dropdown {
+  background-color: #ffffff !important;
+  border-radius: 14px !important;
+  border: 1px solid #e2e8f0 !important;
+  box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.12), 0 8px 10px -6px rgba(0, 0, 0, 0.06) !important;
+  padding: 4px !important;
+  z-index: 1060 !important;
+}
+
+.global-search-dropdown .ant-select-item {
+  padding: 0 !important;
+  min-height: unset !important;
+  border-radius: 8px !important;
+  transition: background-color 0.15s ease !important;
+}
+
+.global-search-dropdown .ant-select-item-option-content {
+  white-space: normal !important;
+  overflow: visible !important;
+  text-overflow: unset !important;
+  padding: 0 !important;
+  width: 100% !important;
+}
+
+.global-search-dropdown .ant-select-item-option-active,
+.global-search-dropdown .ant-select-item-option:hover {
+  background-color: #f8fafc !important;
+}
+
+.global-search-dropdown .ant-select-item-option-selected {
+  background-color: #f1f5f9 !important;
+  font-weight: normal !important;
+}
+

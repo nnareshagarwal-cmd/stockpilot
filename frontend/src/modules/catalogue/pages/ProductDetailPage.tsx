@@ -128,7 +128,7 @@ export const ProductDetailPage: React.FC = () => {
   const navigate = useNavigate()
   const location = useLocation()
   const queryClient = useQueryClient()
-  const [activeTab, setActiveTab] = useState('overview')
+  const [activeTab, setActiveTab] = useState('stock')
   const [dimModalOpen, setDimModalOpen] = useState(false)
   const [dimForm] = Form.useForm()
 
@@ -1038,46 +1038,6 @@ export const ProductDetailPage: React.FC = () => {
           onChange={(k) => setActiveTab(k)}
           items={[
             {
-              key: 'overview',
-              label: 'Variants & Pricing',
-              children: (
-                <div>
-                  <div
-                    style={{
-                      display: 'flex',
-                      justifyContent: 'space-between',
-                      alignItems: 'center',
-                      marginBottom: 16,
-                      flexWrap: 'wrap',
-                      gap: 12,
-                    }}
-                  >
-                    <div>
-                      <Text strong style={{ fontSize: '15px' }}>
-                        SKU Variants & Pricing ({product.variants.length})
-                      </Text>
-                      <Text type="secondary" style={{ display: 'block', fontSize: '12px' }}>
-                        Add, edit, or remove variants directly here without navigating away.
-                      </Text>
-                    </div>
-                    <Button
-                      type="primary"
-                      icon={<PlusOutlined />}
-                      onClick={handleOpenAddVariant}
-                    >
-                      Add Variant
-                    </Button>
-                  </div>
-                  <Table
-                    columns={variantColumns}
-                    dataSource={product.variants}
-                    rowKey="id"
-                    pagination={false}
-                  />
-                </div>
-              ),
-            },
-            {
               key: 'stock',
               label: (
                 <Space size={4}>
@@ -1121,6 +1081,46 @@ export const ProductDetailPage: React.FC = () => {
                         </Empty>
                       ),
                     }}
+                  />
+                </div>
+              ),
+            },
+            {
+              key: 'overview',
+              label: 'Variants & Pricing',
+              children: (
+                <div>
+                  <div
+                    style={{
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      alignItems: 'center',
+                      marginBottom: 16,
+                      flexWrap: 'wrap',
+                      gap: 12,
+                    }}
+                  >
+                    <div>
+                      <Text strong style={{ fontSize: '15px' }}>
+                        SKU Variants & Pricing ({product.variants.length})
+                      </Text>
+                      <Text type="secondary" style={{ display: 'block', fontSize: '12px' }}>
+                        Add, edit, or remove variants directly here without navigating away.
+                      </Text>
+                    </div>
+                    <Button
+                      type="primary"
+                      icon={<PlusOutlined />}
+                      onClick={handleOpenAddVariant}
+                    >
+                      Add Variant
+                    </Button>
+                  </div>
+                  <Table
+                    columns={variantColumns}
+                    dataSource={product.variants}
+                    rowKey="id"
+                    pagination={false}
                   />
                 </div>
               ),

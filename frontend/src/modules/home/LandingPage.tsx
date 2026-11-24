@@ -10,6 +10,7 @@ import {
   Empty,
   Spin,
   Space,
+  Tooltip,
 } from 'antd'
 import {
   SearchOutlined,
@@ -91,28 +92,47 @@ export const LandingPage: React.FC = () => {
   const cleanLocationName = (loc?: string) => (loc ? loc.replace(/\s*\[.*?\]\s*/g, '').trim() : '')
 
   // AutoComplete dropdown options
-  const searchOptions = matchedProducts.map((item) => ({
-    value: item.name,
-    product: item,
-    label: (
-      <div
-        key={item.id}
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          padding: '8px 4px',
-          gap: '12px',
-          borderBottom: '1px solid #f1f5f9',
-        }}
-      >
-        <div style={{ display: 'flex', alignItems: 'center', gap: '12px', minWidth: 0, flex: 1 }}>
+  const searchOptions = matchedProducts.map((item, idx) => {
+    const locations = item.locations || []
+    let locationText = ''
+    if (locations.length > 1) {
+      const total = item.total_stock ?? 0
+      const unitWord = total === 1 ? 'unit' : 'units'
+      locationText = `${total} ${unitWord} · ${locations.length} locations`
+    } else if (locations.length === 1) {
+      locationText = cleanLocationName(locations[0])
+    }
+    const locationsTooltip =
+      locations.length > 1
+        ? locations.map(cleanLocationName).filter(Boolean).join(', ')
+        : undefined
+
+    return {
+      value: item.name,
+      product: item,
+      label: (
+        <div
+          key={item.id}
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            padding: '10px 12px',
+            gap: '14px',
+            borderBottom: idx < matchedProducts.length - 1 ? '1px solid #f1f5f9' : 'none',
+            boxSizing: 'border-box',
+            width: '100%',
+          }}
+        >
+          {/* Left: Product Thumbnail 68x68 */}
           <div
             style={{
-              width: '52px',
-              height: '52px',
-              borderRadius: '10px',
-              background: '#f1f5f9',
+              width: '68px',
+              height: '68px',
+              minWidth: '68px',
+              borderRadius: '8px',
+              background: '#f8fafc',
+              border: '1px solid #e2e8f0',
               overflow: 'hidden',
               flexShrink: 0,
               display: 'flex',
@@ -127,81 +147,147 @@ export const LandingPage: React.FC = () => {
                 style={{ width: '100%', height: '100%', objectFit: 'cover' }}
               />
             ) : (
-              <AppstoreOutlined style={{ color: '#94a3b8', fontSize: '22px' }} />
+              <AppstoreOutlined style={{ color: '#94a3b8', fontSize: '24px' }} />
             )}
           </div>
-          <div style={{ minWidth: 0, flex: 1 }}>
-            {/* Line 1: Product Title */}
+
+          {/* Middle: Product name, Category tag, Brand tag, Location */}
+          <div style={{ minWidth: 0, flex: 1, display: 'flex', flexDirection: 'column', gap: '5px' }}>
             <div
               style={{
                 fontWeight: 600,
-                fontSize: '13.5px',
+                fontSize: '14.5px',
                 color: '#0f172a',
                 whiteSpace: 'nowrap',
                 overflow: 'hidden',
                 textOverflow: 'ellipsis',
+                lineHeight: 1.3,
               }}
+              title={item.name}
             >
               {item.name}
             </div>
 
-            {/* Line 2: Category & Brand */}
-            <div style={{ display: 'flex', gap: '6px', alignItems: 'center', marginTop: '3px' }}>
+            <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '6px' }}>
               {item.category && (
-                <Tag color="blue" style={{ fontSize: '11px', padding: '0 6px', margin: 0, lineHeight: '18px', borderRadius: '4px' }}>
-                  {item.category}
-                </Tag>
-              )}
-              {item.brand && (
-                <Tag color="purple" style={{ fontSize: '11px', padding: '0 6px', margin: 0, lineHeight: '18px', borderRadius: '4px' }}>
-                  {item.brand}
-                </Tag>
-              )}
-            </div>
-
-            {/* Line 3: Location on separate dedicated line */}
-            {item.locations && item.locations.length > 0 && (
-              <div style={{ marginTop: '3px' }}>
                 <span
                   style={{
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    gap: '4px',
+                    display: 'inline-block',
                     fontSize: '11px',
-                    color: '#c2410c',
-                    background: '#fff7ed',
-                    border: '1px solid #fed7aa',
-                    borderRadius: '4px',
-                    padding: '1px 7px',
-                    lineHeight: '16px',
                     fontWeight: 500,
+                    color: '#1d4ed8',
+                    background: '#eff6ff',
+                    border: '1px solid #bfdbfe',
+                    borderRadius: '4px',
+                    padding: '1px 6px',
+                    lineHeight: '16px',
                   }}
                 >
-                  <EnvironmentOutlined style={{ fontSize: '10px' }} />
-                  {cleanLocationName(item.locations[0])}
+                  {item.category}
+                </span>
+              )}
+              {item.brand && (
+                <span
+                  style={{
+                    display: 'inline-block',
+                    fontSize: '11px',
+                    fontWeight: 500,
+                    color: '#7e22ce',
+                    background: '#faf5ff',
+                    border: '1px solid #e9d5ff',
+                    borderRadius: '4px',
+                    padding: '1px 6px',
+                    lineHeight: '16px',
+                  }}
+                >
+                  {item.brand}
+                </span>
+              )}
+              {locationText && (
+                <Tooltip title={locationsTooltip}>
+                  <span
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '4px',
+                      fontSize: '11px',
+                      fontWeight: 500,
+                      color: '#c2410c',
+                      background: '#fff7ed',
+                      border: '1px solid #fed7aa',
+                      borderRadius: '4px',
+                      padding: '1px 6px',
+                      lineHeight: '16px',
+                    }}
+                  >
+                    <EnvironmentOutlined style={{ fontSize: '10px' }} />
+                    {locationText}
+                  </span>
+                </Tooltip>
+              )}
+            </div>
+          </div>
+
+          {/* Right: Price & Available Stock Badge */}
+          <div style={{ textAlign: 'right', flexShrink: 0, minWidth: '100px' }}>
+            <div style={{ fontWeight: 700, fontSize: '15px', color: '#1677ff', lineHeight: 1.2 }}>
+              ₹{Number(item.selling_price || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+            </div>
+            {Boolean(item.mrp) && Number(item.mrp) > Number(item.selling_price) ? (
+              <div
+                style={{
+                  fontSize: '11.5px',
+                  color: '#94a3b8',
+                  textDecoration: 'line-through',
+                  marginTop: '2px',
+                  lineHeight: 1.2,
+                }}
+              >
+                ₹{Number(item.mrp).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+              </div>
+            ) : null}
+            {Number(item.total_stock) > 0 ? (
+              <div style={{ marginTop: '4px' }}>
+                <span
+                  style={{
+                    display: 'inline-block',
+                    fontSize: '11px',
+                    fontWeight: 600,
+                    color: '#15803d',
+                    background: '#f0fdf4',
+                    border: '1px solid #bbf7d0',
+                    borderRadius: '4px',
+                    padding: '1px 6px',
+                    lineHeight: '16px',
+                  }}
+                >
+                  {item.total_stock} in stock
+                </span>
+              </div>
+            ) : (
+              <div style={{ marginTop: '4px' }}>
+                <span
+                  style={{
+                    display: 'inline-block',
+                    fontSize: '11px',
+                    fontWeight: 500,
+                    color: '#94a3b8',
+                    background: '#f8fafc',
+                    border: '1px solid #e2e8f0',
+                    borderRadius: '4px',
+                    padding: '1px 6px',
+                    lineHeight: '16px',
+                  }}
+                >
+                  0 in stock
                 </span>
               </div>
             )}
           </div>
         </div>
-        <div style={{ textAlign: 'right', flexShrink: 0 }}>
-          <div style={{ fontWeight: 700, fontSize: '14px', color: '#1677ff' }}>
-            ₹{Number(item.selling_price || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-          </div>
-          {Boolean(item.mrp) && Number(item.mrp) > Number(item.selling_price) ? (
-            <div style={{ fontSize: '11px', color: '#94a3b8', textDecoration: 'line-through' }}>
-              ₹{Number(item.mrp).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-            </div>
-          ) : null}
-          {Number(item.total_stock) > 0 ? (
-            <Tag color="green" style={{ margin: '4px 0 0 0', fontSize: '11px', lineHeight: '18px' }}>
-              {item.total_stock} in stock
-            </Tag>
-          ) : null}
-        </div>
-      </div>
-    ),
-  }))
+      ),
+    }
+  })
 
   const handleSelectOption = (_value: string, option: any) => {
     if (option?.product) {
@@ -239,7 +325,7 @@ export const LandingPage: React.FC = () => {
         </Paragraph>
 
         {/* Center Search Bar with Interactive Dropdown */}
-        <div style={{ maxWidth: '640px', margin: '0 auto' }}>
+        <div style={{ maxWidth: '720px', width: '100%', margin: '0 auto' }}>
           <AutoComplete
             style={{ width: '100%' }}
             options={searchOptions}
@@ -247,12 +333,17 @@ export const LandingPage: React.FC = () => {
             onSearch={onSearchChange}
             onSelect={handleSelectOption}
             popupMatchSelectWidth={true}
+            popupClassName="global-search-dropdown"
+            virtual={false}
             dropdownStyle={{
-              maxHeight: '440px',
+              maxHeight: '380px',
               overflowY: 'auto',
-              borderRadius: '16px',
-              padding: '6px',
-              boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.25), 0 8px 10px -6px rgba(0, 0, 0, 0.15)',
+              borderRadius: '14px',
+              padding: '4px',
+              backgroundColor: '#ffffff',
+              border: '1px solid #e2e8f0',
+              boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.12), 0 8px 10px -6px rgba(0, 0, 0, 0.06)',
+              zIndex: 1060,
             }}
           >
             <Input
