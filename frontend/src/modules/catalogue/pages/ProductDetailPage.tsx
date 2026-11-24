@@ -43,6 +43,7 @@ import {
   PlusOutlined,
   LinkOutlined,
   SaveOutlined,
+  CopyOutlined,
 } from '@ant-design/icons'
 import { useParams, useNavigate, useLocation } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
@@ -717,6 +718,25 @@ export const ProductDetailPage: React.FC = () => {
         </Space>
 
         <Space>
+          <Popconfirm
+            title="Copy this product?"
+            description={`Create a new duplicate of "${product.name}" with auto-generated SKUs?`}
+            onConfirm={async () => {
+              try {
+                const res = await apiClient.post<ApiResponse<ProductDetail>>(`/products/${product.id}/copy`)
+                message.success('Product copied successfully! Redirecting to edit...')
+                queryClient.invalidateQueries({ queryKey: ['products'] })
+                navigate(`/products/${res.data.data.id}/edit`, { state: location.state })
+              } catch (err: any) {
+                const msg = err.response?.data?.error?.message || 'Failed to copy product'
+                message.error(msg)
+              }
+            }}
+            okText="Copy & Edit"
+            cancelText="Cancel"
+          >
+            <Button icon={<CopyOutlined />}>Copy Product</Button>
+          </Popconfirm>
           <Button
             type="primary"
             icon={<EditOutlined />}

@@ -13,6 +13,7 @@ import {
   Row,
   Col,
   AutoComplete,
+  Tooltip,
 } from 'antd'
 import { ThinStatCard } from '../../../components/common/ThinStatCard'
 import {
@@ -24,6 +25,7 @@ import {
   DeleteOutlined,
   EyeOutlined,
   AppstoreOutlined,
+  CopyOutlined,
 } from '@ant-design/icons'
 import { useNavigate, useSearchParams, useLocation } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
@@ -423,6 +425,30 @@ export const ProductListPage: React.FC = () => {
     },
   })
 
+  // Copy product mutation
+  const [copyingId, setCopyingId] = useState<string | null>(null)
+  const copyMutation = useMutation({
+    mutationFn: async (productId: string) => {
+      setCopyingId(productId)
+      const res = await apiClient.post<ApiResponse<any>>(`/products/${productId}/copy`)
+      return res.data.data
+    },
+    onSuccess: (newProduct) => {
+      message.success('Product copied successfully! Redirecting to edit...')
+      queryClient.invalidateQueries({ queryKey: ['products'] })
+      navigate(`/products/${newProduct.id}/edit`, {
+        state: { returnSearch: searchParams.toString() },
+      })
+    },
+    onError: (err: any) => {
+      const msg = err.response?.data?.error?.message || 'Failed to copy product'
+      message.error(msg)
+    },
+    onSettled: () => {
+      setCopyingId(null)
+    },
+  })
+
   const handleExport = async () => {
     try {
       setExporting(true)
@@ -591,29 +617,49 @@ export const ProductListPage: React.FC = () => {
     {
       title: 'Actions',
       key: 'actions',
-      width: 140,
+      width: 170,
       render: (_: any, record: ProductSearchItem) => (
-        <Space size={8}>
-          <Button
-            type="text"
-            icon={<EyeOutlined />}
-            size="small"
-            onClick={() =>
-              navigate(`/products/${record.id}`, {
-                state: { returnSearch: searchParams.toString() },
-              })
-            }
-          />
-          <Button
-            type="text"
-            icon={<EditOutlined />}
-            size="small"
-            onClick={() =>
-              navigate(`/products/${record.id}/edit`, {
-                state: { returnSearch: searchParams.toString() },
-              })
-            }
-          />
+        <Space size={6}>
+          <Tooltip title="View Details">
+            <Button
+              type="text"
+              icon={<EyeOutlined />}
+              size="small"
+              onClick={() =>
+                navigate(`/products/${record.id}`, {
+                  state: { returnSearch: searchParams.toString() },
+                })
+              }
+            />
+          </Tooltip>
+          <Tooltip title="Edit Product">
+            <Button
+              type="text"
+              icon={<EditOutlined />}
+              size="small"
+              onClick={() =>
+                navigate(`/products/${record.id}/edit`, {
+                  state: { returnSearch: searchParams.toString() },
+                })
+              }
+            />
+          </Tooltip>
+          <Popconfirm
+            title="Copy product?"
+            description={`Create a new duplicate of "${record.name}" with auto-generated SKUs?`}
+            onConfirm={() => copyMutation.mutate(record.id)}
+            okText="Copy & Edit"
+            cancelText="Cancel"
+          >
+            <Tooltip title="Copy Product">
+              <Button
+                type="text"
+                icon={<CopyOutlined style={{ color: '#0284c7' }} />}
+                size="small"
+                loading={copyMutation.isPending && copyingId === record.id}
+              />
+            </Tooltip>
+          </Popconfirm>
           {record.is_active && (
             <Popconfirm
               title="Archive product?"
@@ -622,7 +668,9 @@ export const ProductListPage: React.FC = () => {
               okText="Yes"
               cancelText="No"
             >
-              <Button type="text" danger icon={<DeleteOutlined />} size="small" />
+              <Tooltip title="Archive Product">
+                <Button type="text" danger icon={<DeleteOutlined />} size="small" />
+              </Tooltip>
             </Popconfirm>
           )}
         </Space>

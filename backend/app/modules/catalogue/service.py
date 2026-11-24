@@ -634,6 +634,162 @@ async def archive_product(db: AsyncSession, tenant_id: uuid.UUID, user_id: uuid.
     product.is_active = False
     product.updated_by = user_id
     await log_audit(db, tenant_id, user_id, "ARCHIVE", "product", product.id, f"Archived product {product.name}")
+
+
+async def copy_product(
+    db: AsyncSession,
+    tenant_id: uuid.UUID,
+    user_id: uuid.UUID,
+    product_id: uuid.UUID,
+) -> ProductDetailResponse:
+    query = (
+        select(Product)
+        .options(
+            selectinload(Product.category),
+            selectinload(Product.subcategory),
+            selectinload(Product.brand),
+            selectinload(Product.variants),
+            selectinload(Product.images),
+            selectinload(Product.attribute_values),
+        )
+        .where(Product.id == product_id, Product.tenant_id == tenant_id)
+    )
+    res = await db.execute(query)
+    source = res.scalar_one_or_none()
+    if not source:
+        raise NotFoundException("Product", str(product_id))
+
+    # Generate copy name
+    match = re.search(r"^(.*?)\s*\(Copy(?:\s*(\d+))?\)$", source.name)
+    if match:
+        base = match.group(1).strip()
+        num = int(match.group(2)) if match.group(2) else 1
+        copy_name = f"{base} (Copy {num + 1})"
+    else:
+        copy_name = f"{source.name} (Copy)"
+
+    # Create new product
+    new_product = Product(
+        tenant_id=tenant_id,
+        name=copy_name,
+        description=source.description,
+        category_id=source.category_id,
+        subcategory_id=source.subcategory_id,
+        brand_id=source.brand_id,
+        model=source.model,
+        tax_rate_id=source.tax_rate_id,
+        height_mm=source.height_mm,
+        width_mm=source.width_mm,
+        depth_mm=source.depth_mm,
+        height_inches=source.height_inches,
+        width_inches=source.width_inches,
+        depth_inches=source.depth_inches,
+        is_active=True,
+        created_by=user_id,
+    )
+    db.add(new_product)
+    await db.flush()
+
+    # Determine prefix and generate next sequential SKUs
+    num_variants = len(source.variants)
+    prefix = ""
+    if source.variants and source.variants[0].sku:
+        m = re.match(r"^(.*)-(\d+)$", source.variants[0].sku.strip())
+        if m:
+            prefix = m.group(1)
+
+    if not prefix:
+        brand_code = (source.brand.name[:3].upper() if source.brand and source.brand.name else "GEN")
+        cat_code = (source.category.name[:3].upper() if source.category and source.category.name else "GEN")
+        prefix = f"{brand_code}-{cat_code}"
+
+    sku_info = await get_next_sku(db, tenant_id, prefix, count=max(1, num_variants))
+    new_skus = sku_info["skus"]
+
+    variant_id_map = {}
+    for idx, var in enumerate(source.variants):
+        new_sku = new_skus[idx] if idx < len(new_skus) else f"{prefix}-{str(sku_info['next_sequence'] + idx).zfill(3)}"
+        new_var = ProductVariant(
+            tenant_id=tenant_id,
+            product_id=new_product.id,
+            sku=new_sku,
+            variant_name=var.variant_name,
+            barcode=new_sku if (var.barcode and var.barcode == var.sku) else None,
+            barcode_type=var.barcode_type,
+            unit_id=var.unit_id,
+            purchase_price=var.purchase_price,
+            selling_price=var.selling_price,
+            mrp=var.mrp,
+            reorder_point=var.reorder_point,
+            reorder_quantity=var.reorder_quantity,
+            weight_kg=var.weight_kg,
+            is_active=True,
+            height_mm=var.height_mm,
+            width_mm=var.width_mm,
+            depth_mm=var.depth_mm,
+            height_inches=var.height_inches,
+            width_inches=var.width_inches,
+            depth_inches=var.depth_inches,
+            created_by=user_id,
+        )
+        db.add(new_var)
+        await db.flush()
+        variant_id_map[var.id] = new_var.id
+
+        # Price history
+        db.add(PriceHistory(
+            tenant_id=tenant_id, variant_id=new_var.id, price_type="purchase",
+            old_price=None, new_price=var.purchase_price, changed_by=user_id, reason="Copied from product"
+        ))
+        db.add(PriceHistory(
+            tenant_id=tenant_id, variant_id=new_var.id, price_type="selling",
+            old_price=None, new_price=var.selling_price, changed_by=user_id, reason="Copied from product"
+        ))
+        if var.mrp is not None:
+            db.add(PriceHistory(
+                tenant_id=tenant_id, variant_id=new_var.id, price_type="mrp",
+                old_price=None, new_price=var.mrp, changed_by=user_id, reason="Copied from product"
+            ))
+
+    # Copy attribute values
+    for pav in source.attribute_values:
+        new_var_id = variant_id_map.get(pav.variant_id) if pav.variant_id else None
+        new_pav = ProductAttributeValue(
+            tenant_id=tenant_id,
+            product_id=new_product.id,
+            variant_id=new_var_id,
+            attribute_id=pav.attribute_id,
+            text_value=pav.text_value,
+            numeric_value=pav.numeric_value,
+            decimal_value=pav.decimal_value,
+            boolean_value=pav.boolean_value,
+            date_value=pav.date_value,
+            option_id=pav.option_id,
+            option_ids=pav.option_ids,
+        )
+        db.add(new_pav)
+
+    # Copy images
+    for img in source.images:
+        new_var_id = variant_id_map.get(img.variant_id) if img.variant_id else None
+        new_img = ProductImage(
+            tenant_id=tenant_id,
+            product_id=new_product.id,
+            variant_id=new_var_id,
+            file_url=img.file_url,
+            file_name=img.file_name,
+            file_size=img.file_size,
+            mime_type=img.mime_type,
+            caption=img.caption,
+            is_primary=img.is_primary,
+            sort_order=img.sort_order,
+        )
+        db.add(new_img)
+
+    await log_audit(db, tenant_id, user_id, "CREATE", "product", new_product.id, f"Copied product from {source.name}")
+    await db.commit()
+
+    return await get_product_detail(db, tenant_id, new_product.id)
     await db.commit()
 
 

@@ -193,6 +193,21 @@ async def archive_product(
     return {"message": "Product archived successfully"}
 
 
+@router.post("/{product_id}/copy", status_code=status.HTTP_201_CREATED)
+async def copy_product(
+    product_id: uuid.UUID,
+    user: User = Depends(require_role("admin")),
+    db: AsyncSession = Depends(get_db),
+):
+    product = await service.copy_product(
+        db=db,
+        tenant_id=user.current_tenant_id,
+        user_id=user.id,
+        product_id=product_id,
+    )
+    return {"data": product.model_dump(), "message": "Product copied successfully"}
+
+
 # ==================== PRODUCT VARIANTS ====================
 
 @router.post("/{product_id}/variants", status_code=status.HTTP_201_CREATED)
