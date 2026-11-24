@@ -137,6 +137,53 @@ def _calc_dimensions(val_mm: Optional[Decimal], val_in: Optional[Decimal]) -> tu
     return mm, inch
 
 
+async def get_next_sku(
+    db: AsyncSession,
+    tenant_id: uuid.UUID,
+    prefix: str,
+    count: int = 1,
+) -> dict:
+    clean_prefix = (prefix or "").strip().rstrip("-").upper()
+    if not clean_prefix:
+        clean_prefix = "GEN-GEN"
+
+    stmt = select(ProductVariant.sku).where(
+        ProductVariant.tenant_id == tenant_id,
+        ProductVariant.sku.ilike(f"{clean_prefix}-%"),
+    )
+    res = await db.execute(stmt)
+    existing_skus = res.scalars().all()
+
+    max_seq = 0
+    max_digits = 3
+
+    for sku_str in existing_skus:
+        sku_clean = sku_str.strip()
+        match = re.search(r"-(\d+)$", sku_clean)
+        if match:
+            num_str = match.group(1)
+            num_val = int(num_str)
+            if num_val > max_seq:
+                max_seq = num_val
+            if len(num_str) > max_digits:
+                max_digits = len(num_str)
+
+    next_start = max_seq + 1
+    safe_count = max(1, min(count, 50))
+    skus = [
+        f"{clean_prefix}-{str(next_start + i).zfill(max_digits)}"
+        for i in range(safe_count)
+    ]
+
+    return {
+        "prefix": clean_prefix,
+        "last_sequence": max_seq,
+        "next_sequence": next_start,
+        "next_sku": skus[0],
+        "skus": skus,
+    }
+
+
 async def create_product(
     db: AsyncSession,
     tenant_id: uuid.UUID,

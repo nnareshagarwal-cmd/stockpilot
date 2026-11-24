@@ -340,22 +340,47 @@ export const ProductFormPage: React.FC = () => {
     return `${brandCode}-${categoryCode}-${seq}`
   }
 
-  // Auto-generate SKUs for variants
-  const handleAutoGenerateSku = (
+  // Auto-generate SKUs for variants checking database for last SKU in series
+  const handleAutoGenerateSku = async (
     catId?: string | null,
     subCatId?: string | null,
     brandId?: string | null
   ) => {
     if (!catId && !brandId) return
-    setVariants((prev) =>
-      prev.map((v, idx) => {
-        // Only overwrite if empty or matches standard auto-generated dash pattern
-        if (!v.sku || !v.sku.trim() || /^[A-Z0-9]{2,4}-[A-Z0-9]{2,4}(-\d{3})?$/i.test(v.sku.trim())) {
-          return { ...v, sku: computeSku(catId, subCatId, brandId, idx) }
-        }
-        return v
-      })
-    )
+    const brandCode = getBrandCode(brandId)
+    const categoryCode = getCategoryCode(catId, subCatId)
+    const prefix = `${brandCode}-${categoryCode}`
+    const countNeeded = Math.max(1, variants.length)
+
+    try {
+      const res = await apiClient.get<ApiResponse<{ prefix: string; next_sequence: number; skus: string[] }>>(
+        `/products/next-sku?prefix=${encodeURIComponent(prefix)}&count=${countNeeded}`
+      )
+      const fetchedSkus = res.data.data?.skus || []
+
+      setVariants((prev) =>
+        prev.map((v, idx) => {
+          // Only overwrite if empty or matches standard auto-generated dash pattern
+          if (!v.sku || !v.sku.trim() || /^[A-Z0-9]{2,4}-[A-Z0-9]{2,4}(-\d+)?$/i.test(v.sku.trim())) {
+            return {
+              ...v,
+              sku: fetchedSkus[idx] || `${prefix}-${String(idx + 1).padStart(3, '0')}`,
+            }
+          }
+          return v
+        })
+      )
+    } catch {
+      // Fallback to local computation if API fails
+      setVariants((prev) =>
+        prev.map((v, idx) => {
+          if (!v.sku || !v.sku.trim() || /^[A-Z0-9]{2,4}-[A-Z0-9]{2,4}(-\d+)?$/i.test(v.sku.trim())) {
+            return { ...v, sku: computeSku(catId, subCatId, brandId, idx) }
+          }
+          return v
+        })
+      )
+    }
   }
 
   // Load existing product if editing
@@ -495,14 +520,41 @@ export const ProductFormPage: React.FC = () => {
     }
   }
 
-  const handleAddVariant = () => {
-    const nextIndex = variants.length
-    const autoSku = selectedCategoryId || selectedBrandId
-      ? computeSku(selectedCategoryId, selectedSubcategoryId, selectedBrandId, nextIndex)
-      : ''
+  const handleAddVariant = async () => {
+    const brandCode = getBrandCode(selectedBrandId)
+    const categoryCode = getCategoryCode(selectedCategoryId, selectedSubcategoryId)
+    const prefix = `${brandCode}-${categoryCode}`
 
-    setVariants([
-      ...variants,
+    let autoSku = ''
+    if (selectedCategoryId || selectedBrandId) {
+      // Find highest sequence already present in current form with this prefix
+      let maxSeqInForm = 0
+      variants.forEach((v) => {
+        if (v.sku && v.sku.toUpperCase().startsWith(`${prefix}-`)) {
+          const match = v.sku.match(/-(\d+)$/)
+          if (match) {
+            const num = parseInt(match[1], 10)
+            if (num > maxSeqInForm) maxSeqInForm = num
+          }
+        }
+      })
+
+      if (maxSeqInForm > 0) {
+        autoSku = `${prefix}-${String(maxSeqInForm + 1).padStart(3, '0')}`
+      } else {
+        try {
+          const res = await apiClient.get<ApiResponse<{ next_sku: string }>>(
+            `/products/next-sku?prefix=${encodeURIComponent(prefix)}&count=1`
+          )
+          autoSku = res.data.data?.next_sku || `${prefix}-001`
+        } catch {
+          autoSku = computeSku(selectedCategoryId, selectedSubcategoryId, selectedBrandId, variants.length)
+        }
+      }
+    }
+
+    setVariants((prev) => [
+      ...prev,
       {
         key: Date.now().toString(),
         sku: autoSku,
@@ -651,7 +703,22 @@ export const ProductFormPage: React.FC = () => {
           <Tooltip title="Regenerate SKU">
             <Button
               icon={<ThunderboltOutlined />}
-              onClick={() => {
+              onClick={async () => {
+                const brandCode = getBrandCode(selectedBrandId)
+                const categoryCode = getCategoryCode(selectedCategoryId, selectedSubcategoryId)
+                const prefix = `${brandCode}-${categoryCode}`
+                try {
+                  const res = await apiClient.get<ApiResponse<{ skus: string[] }>>(
+                    `/products/next-sku?prefix=${encodeURIComponent(prefix)}&count=${index + 1}`
+                  )
+                  const fetched = res.data.data?.skus?.[index]
+                  if (fetched) {
+                    handleVariantChange(record.key, 'sku', fetched)
+                    return
+                  }
+                } catch {
+                  // ignore
+                }
                 const auto = computeSku(selectedCategoryId, selectedSubcategoryId, selectedBrandId, index)
                 handleVariantChange(record.key, 'sku', auto)
               }}
@@ -664,11 +731,13 @@ export const ProductFormPage: React.FC = () => {
       title: 'Variant Name',
       dataIndex: 'variant_name',
       key: 'variant_name',
+      width: 320,
       render: (_: any, record: any) => (
         <Input
           placeholder="e.g. King Size / Teak Finish"
           value={record.variant_name}
           onChange={(e) => handleVariantChange(record.key, 'variant_name', e.target.value)}
+          style={{ width: '100%' }}
         />
       ),
     },
@@ -1005,7 +1074,7 @@ export const ProductFormPage: React.FC = () => {
             columns={variantColumns}
             dataSource={variants}
             pagination={false}
-            scroll={{ x: 900 }}
+            scroll={{ x: 1150 }}
             size="middle"
           />
         </Card>

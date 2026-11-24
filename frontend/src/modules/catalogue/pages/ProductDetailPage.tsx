@@ -355,12 +355,29 @@ export const ProductDetailPage: React.FC = () => {
   }
 
   // Variant Modal Handlers
-  const handleOpenAddVariant = () => {
+  const handleOpenAddVariant = async () => {
     setEditingVariant(null)
     variantForm.resetFields()
-    const defaultSku = product?.variants?.[0]?.sku
-      ? `${product.variants[0].sku}-${product.variants.length + 1}`
-      : ''
+
+    let defaultSku = ''
+    const firstSku = product?.variants?.[0]?.sku
+    if (firstSku) {
+      const match = firstSku.match(/^(.*)-(\d+)$/)
+      if (match) {
+        const prefix = match[1]
+        try {
+          const res = await apiClient.get<ApiResponse<{ next_sku: string }>>(
+            `/products/next-sku?prefix=${encodeURIComponent(prefix)}&count=1`
+          )
+          defaultSku = res.data.data?.next_sku || `${prefix}-${String(product.variants.length + 1).padStart(3, '0')}`
+        } catch {
+          defaultSku = `${prefix}-${String(product.variants.length + 1).padStart(3, '0')}`
+        }
+      } else {
+        defaultSku = `${firstSku}-${product.variants.length + 1}`
+      }
+    }
+
     variantForm.setFieldsValue({
       variant_name: '',
       sku: defaultSku,

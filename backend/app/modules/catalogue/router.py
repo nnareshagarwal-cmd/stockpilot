@@ -125,6 +125,23 @@ async def export_products(
     )
 
 
+@router.get("/next-sku")
+async def get_next_sku_endpoint(
+    prefix: str = Query(..., description="SKU prefix to check e.g. CRY-OFF"),
+    count: int = Query(1, ge=1, le=50, description="Number of sequential SKUs needed"),
+    tenant_id: uuid.UUID = Depends(get_tenant_id),
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    result = await service.get_next_sku(
+        db=db,
+        tenant_id=tenant_id,
+        prefix=prefix,
+        count=count,
+    )
+    return {"data": result}
+
+
 @router.post("/import/preview")
 async def preview_import(
     file: UploadFile = File(...),
