@@ -90,24 +90,17 @@ export const MobileLoginPage: React.FC = () => {
     >
       <div style={{ width: '100%', maxWidth: 400 }}>
         <div style={{ textAlign: 'center', marginBottom: 22 }}>
-          <div
+          <img
+            src="/icons/icon-192.png"
+            alt="StockPilot"
             style={{
-              width: 56,
-              height: 56,
+              width: 60,
+              height: 60,
               borderRadius: 16,
-              background: 'linear-gradient(135deg, #1677ff 0%, #3b82f6 100%)',
-              display: 'inline-flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              fontWeight: 800,
-              fontSize: 22,
-              color: '#fff',
               boxShadow: '0 8px 24px rgba(22, 119, 255, 0.35)',
               marginBottom: 10,
             }}
-          >
-            SP
-          </div>
+          />
           <Title level={3} style={{ color: '#ffffff', margin: 0, fontWeight: 700 }}>
             StockPilot Mobile
           </Title>

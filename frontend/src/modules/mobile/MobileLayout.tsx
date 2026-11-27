@@ -1,7 +1,7 @@
 import React from 'react'
 import { Outlet, Navigate, useLocation, useNavigate } from 'react-router-dom'
 import { Button, Spin, Typography } from 'antd'
-import { ArrowLeftOutlined, LogoutOutlined, HomeOutlined } from '@ant-design/icons'
+import { ArrowLeftOutlined, LogoutOutlined } from '@ant-design/icons'
 import { useAuth } from '../../auth/AuthContext'
 
 const { Text } = Typography
@@ -58,33 +58,17 @@ export const MobileLayout: React.FC = () => {
         }}
       >
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
-          {!isHome ? (
-            <Button
-              type="text"
-              icon={<ArrowLeftOutlined style={{ color: '#fff', fontSize: 16 }} />}
-              onClick={() => navigate(-1)}
-              style={{ padding: '4px 6px', height: 34 }}
-              aria-label="Back"
-            />
-          ) : (
-            <div
-              style={{
-                width: 32,
-                height: 32,
-                borderRadius: 8,
-                background: 'linear-gradient(135deg, #1677ff 0%, #3b82f6 100%)',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                fontWeight: 800,
-                fontSize: 14,
-                color: '#fff',
-                flexShrink: 0,
-              }}
-            >
-              SP
-            </div>
-          )}
+          <img
+            src="/icons/icon-192.png"
+            alt="StockPilot"
+            style={{
+              width: 32,
+              height: 32,
+              borderRadius: 8,
+              flexShrink: 0,
+              display: 'block',
+            }}
+          />
           <div style={{ minWidth: 0 }}>
             <div style={{ fontWeight: 700, fontSize: 15, lineHeight: 1.2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
               {currentUser?.business?.name || 'StockPilot'}
@@ -96,15 +80,6 @@ export const MobileLayout: React.FC = () => {
         </div>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
-          {!isHome && (
-            <Button
-              type="text"
-              icon={<HomeOutlined style={{ color: '#e2e8f0', fontSize: 16 }} />}
-              onClick={() => navigate('/mobile')}
-              style={{ padding: '4px 8px', height: 34 }}
-              aria-label="Home"
-            />
-          )}
           <Button
             type="text"
             icon={<LogoutOutlined style={{ color: '#fca5a5', fontSize: 16 }} />}
@@ -122,6 +97,35 @@ export const MobileLayout: React.FC = () => {
           padding: '14px 14px calc(20px + env(safe-area-inset-bottom))',
         }}
       >
+        {!isHome && (
+          <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 8 }}>
+            <button
+              type="button"
+              onClick={() => navigate(-1)}
+              aria-label="Back"
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 6,
+                background: 'transparent',
+                border: 'none',
+                padding: '4px 2px',
+                color: '#1677ff',
+                fontSize: 15,
+                fontWeight: 600,
+                cursor: 'pointer',
+              }}
+            >
+              <ArrowLeftOutlined style={{ fontSize: 15 }} />
+              <img
+                src="/icons/icon-192.png"
+                alt=""
+                style={{ width: 20, height: 20, borderRadius: 5, display: 'block' }}
+              />
+              <span>Back</span>
+            </button>
+          </div>
+        )}
         <Outlet />
       </main>
     </div>
