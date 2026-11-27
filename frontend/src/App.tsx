@@ -24,11 +24,83 @@ import { StockTransfersPage } from './modules/stock/StockTransfersPage'
 import { StockMovementsPage } from './modules/stock/StockMovementsPage'
 import { StockAgeingPage } from './modules/stock/StockAgeingPage'
 import { SupplierOrdersPage } from './modules/procurement/SupplierOrdersPage'
+import { MobileLayout } from './modules/mobile/MobileLayout'
+import { MobileLoginPage } from './modules/mobile/MobileLoginPage'
+import { MobileHomePage } from './modules/mobile/MobileHomePage'
+import { MobileDashboardPage } from './modules/mobile/MobileDashboardPage'
+import { MobileSearchPage } from './modules/mobile/MobileSearchPage'
+import { MobileProductsPage } from './modules/mobile/MobileProductsPage'
+import { MobileProductDetailPage } from './modules/mobile/MobileProductDetailPage'
+import { MobileStockMaintenancePage } from './modules/mobile/MobileStockMaintenancePage'
+import { MobileStockTransfersPage } from './modules/mobile/MobileStockTransfersPage'
+import { MobileSupplierOrdersPage } from './modules/mobile/MobileSupplierOrdersPage'
+import { MobileTileGuard } from './modules/mobile/MobileTileGuard'
 
 export const App: React.FC = () => {
   return (
     <Routes>
       <Route path="/login" element={<LoginPage />} />
+      <Route path="/mobile/login" element={<MobileLoginPage />} />
+
+      <Route path="/mobile" element={<MobileLayout />}>
+        <Route index element={<MobileHomePage />} />
+        <Route
+          path="dashboard"
+          element={
+            <MobileTileGuard tileId="dashboard">
+              <MobileDashboardPage />
+            </MobileTileGuard>
+          }
+        />
+        <Route
+          path="search"
+          element={
+            <MobileTileGuard tileId="search">
+              <MobileSearchPage />
+            </MobileTileGuard>
+          }
+        />
+        <Route
+          path="products"
+          element={
+            <MobileTileGuard tileId="products">
+              <MobileProductsPage />
+            </MobileTileGuard>
+          }
+        />
+        <Route
+          path="products/:id"
+          element={
+            <MobileTileGuard tileId={['products', 'search']}>
+              <MobileProductDetailPage />
+            </MobileTileGuard>
+          }
+        />
+        <Route
+          path="stock-maintenance"
+          element={
+            <MobileTileGuard tileId="stock_maintenance">
+              <MobileStockMaintenancePage />
+            </MobileTileGuard>
+          }
+        />
+        <Route
+          path="stock-transfers"
+          element={
+            <MobileTileGuard tileId="stock_transfers">
+              <MobileStockTransfersPage />
+            </MobileTileGuard>
+          }
+        />
+        <Route
+          path="supplier-orders"
+          element={
+            <MobileTileGuard tileId="supplier_orders">
+              <MobileSupplierOrdersPage />
+            </MobileTileGuard>
+          }
+        />
+      </Route>
 
       <Route
         path="/"

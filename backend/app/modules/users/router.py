@@ -49,3 +49,13 @@ async def update_user(
 ):
     result = await service.update_user(db, user.current_tenant_id, user.id, user_id, data)
     return {"data": result.model_dump(), "message": "User updated successfully"}
+
+
+@router.post("/{user_id}/unlock-pin")
+async def unlock_user_pin(
+    user_id: uuid.UUID,
+    user: User = Depends(require_role("admin")),
+    db: AsyncSession = Depends(get_db),
+):
+    result = await service.unlock_user_mobile_pin(db, user.current_tenant_id, user.id, user_id)
+    return {"data": result.model_dump(), "message": "Mobile PIN unlocked successfully"}

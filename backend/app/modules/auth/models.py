@@ -1,5 +1,5 @@
 import uuid
-from sqlalchemy import Column, String, Boolean, ForeignKey, Text, DateTime, func
+from sqlalchemy import Column, String, Boolean, Integer, ForeignKey, Text, DateTime, func
 from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.orm import relationship
 from app.common.base_model import Base, TimestampMixin
@@ -93,6 +93,11 @@ class BusinessUser(Base, TimestampMixin):
     user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
     role_id = Column(UUID(as_uuid=True), ForeignKey("roles.id", ondelete="RESTRICT"), nullable=False)
     is_active = Column(Boolean, default=True, nullable=False)
+    mobile_access = Column(Boolean, default=False, nullable=False)
+    mobile_pin_hash = Column(String(255), nullable=True)
+    mobile_pages = Column(JSONB, default=dict, nullable=False)
+    pin_failed_attempts = Column(Integer, default=0, nullable=False)
+    pin_locked_until = Column(DateTime(timezone=True), nullable=True)
 
     # Relationships
     business = relationship("Business", back_populates="users")

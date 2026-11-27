@@ -17,6 +17,7 @@ from app.modules.catalogue.router import router as catalogue_router
 from app.modules.stock.router import router as stock_router
 from app.modules.procurement.router import router as procurement_router
 from app.modules.dashboard.router import router as dashboard_router
+from app.modules.mobile.router import router as mobile_router
 
 
 def create_app() -> FastAPI:
@@ -84,6 +85,7 @@ def create_app() -> FastAPI:
     application.include_router(stock_router, prefix=api_prefix)
     application.include_router(procurement_router, prefix=api_prefix)
     application.include_router(dashboard_router, prefix=api_prefix)
+    application.include_router(mobile_router, prefix=api_prefix)
 
     return application
 
